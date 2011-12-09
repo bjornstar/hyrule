@@ -1,0 +1,16 @@
+{
+  "name": "hyrule",
+  "description": "A magical wonderland where hardware gets tested.",
+  "version": "0.0.1-1",
+  "dependencies": {
+    "mongoose": "2.4.1",
+    "express": "2.5.1"
+  },
+  "engines": {
+    "node": ">=0.6.5"
+  },
+  "scripts": {
+    "start": "zelda.js"
+  }
+}
+
