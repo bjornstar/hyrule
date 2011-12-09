@@ -14,23 +14,47 @@ var UserSchema = new Schema({
 			required: true,
 			default: Date.now
 	},
-	registered: {	type: Date,
+	firstseen: {	type: Date,
 			required: true,
 			default: Date.now
 	}
 });
 
+var MachineSchema = new Schema({
+	mac: {		type: String,
+			required: true,
+			index: {unique: true},
+			lowercase: true
+	},
+	lastseen: {	type: Date,
+			default: Date.now
+	},
+	firstseen: {	type: Date,
+			default: Date.now
+	}
+});
+
 var User = mongoose.model('User', UserSchema);
-var userJimmy = new User({email:'jimmy@example.com'});
+
+var Machine = mongoose.model('Machine', MachineSchema);
 
 var banana = {pause:250};
-var chicken = {task:banana,user:userJimmy};
+var chicken = {task:banana};
 
 var zelda = express.createServer();
 zelda.use(express.bodyParser());
 
-zelda.get('/client/:mac/current_action', function(req, res){
-  res.send(chicken);
+zelda.get('/client/:mac/task', function(req, res){
+	Machine.findOne({mac:req.params.mac.toLowerCase()}, function(err,qMachine){
+		if (qMachine) {
+			qMachine.lastseen = Date.now();
+		} else {
+			qMachine = new Machine({mac:req.params.mac});
+		}
+		qMachine.save();
+		chicken.machine = qMachine;
+		res.send(chicken);
+	});
 });
 
 zelda.listen(3000);
