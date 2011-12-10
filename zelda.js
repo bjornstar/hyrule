@@ -12,11 +12,11 @@ var UserSchema = new Schema({
 	},
 	lastseen: {	type: Date,
 			required: true,
-			default: Date.now
+			default: Date.now()
 	},
 	firstseen: {	type: Date,
 			required: true,
-			default: Date.now
+			default: Date.now()
 	}
 });
 
@@ -27,19 +27,29 @@ var MachineSchema = new Schema({
 			lowercase: true
 	},
 	lastseen: {	type: Date,
-			default: Date.now
+			required: true,
+			default: Date.now()
 	},
 	firstseen: {	type: Date,
-			default: Date.now
+			required: true,
+			default: Date.now()
 	}
 });
 
-var User = mongoose.model('User', UserSchema);
+var TaskSchema = new Schema({
+	machine: [MachineSchema],
+	task:	 {},
+	created: {	type: Date,
+			required: true,
+			default: Date.now()
+	},
+	start: {	type: Date
+	}
+});
 
-var Machine = mongoose.model('Machine', MachineSchema);
-
-var banana = {pause:250};
-var chicken = {task:banana};
+var User =	mongoose.model('User', UserSchema);
+var Machine =	mongoose.model('Machine', MachineSchema);
+var Task =	mongoose.model('Task', TaskSchema);
 
 var zelda = express.createServer();
 zelda.use(express.bodyParser());
@@ -52,8 +62,19 @@ zelda.get('/client/:mac/task', function(req, res){
 			qMachine = new Machine({mac:req.params.mac});
 		}
 		qMachine.save();
-		chicken.machine = qMachine;
-		res.send(chicken);
+
+		Task.findOne({machine:qMachine}, function(err,qTask) {
+			if (qTask) {
+				qTask.start = Date.now();
+			} else {
+				qTask = new Task();
+				qTask.start = Date.now();
+				qTask.task = {pause:250};
+				qTask.machine = qMachine;
+			}
+			qTask.save();
+			res.send(qTask);
+		});
 	});
 });
 
