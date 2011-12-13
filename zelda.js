@@ -1,67 +1,94 @@
-var	mongoose	= require('mongoose'),
+var	db		= require('mongodb').Db,
+	server		= require('mongodb').Server,
 	express		= require('express');
 
-var db = mongoose.connect('mongodb://localhost/hyrule');
-var Schema = mongoose.Schema;
+console.log('Welcome to Hyrule.');
 
-var TaskSchema = new Schema({
-	task:	 {},
-	created: {	type: Date,
-			required: true,
-			default: Date.now()
-	},
-	started: {	type: Date
-	}
-});
-
-var MachineSchema = new Schema({
-	mac: {		type: String,
-			index: {unique: true},
-			lowercase: true,
-			required: true
-	},
-	lastseen: {	type: Date,
-			default: Date.now()
-	},
-	firstseen: {	type: Date,
-			default: Date.now()
-	},
-	tasks:	[TaskSchema]
-});
-
-var Machine =	mongoose.model('Machine', MachineSchema);
-var Task =	mongoose.model('Task', TaskSchema);
+var hyrule = new db('hyrule', new server('localhost', 27017, {}));
 
 var zelda = express.createServer();
 zelda.use(express.bodyParser());
 
 zelda.get('/client/:mac/task', function(req, res){
-	Machine.findOne(
-		{mac:req.params.mac.toLowerCase()}, function(err,qMachine){
-		if (err){
-			console.log(err);
-		}
-		if (qMachine){
-			qMachine.lastseen = Date.now();
-		} else {
-			qMachine = new Machine();
-			qMachine.mac = req.params.mac;
-		}
-		if (qMachine.tasks.length>0){
-			console.log(qMachine.tasks);
-			qTask = qMachine.tasks[0];
-		} else {
-			qTask = new Task();
-			qTask.task = {pause:250};
-			qTask.start = Date.now();
-			qMachine.tasks.push(qTask);
-		}
-		qMachine.save(function (err) {
-			if (err){
-				console.log(err);
-			}
+	hyrule.open(function(err, db_p){
+		hyrule.collection('machines', function(err, collectionMachine) {
+			collectionMachine.findAndModify(
+				{'mac':req.params.mac.toLowerCase()},
+				[],
+				{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'safe': true, 'new': true, 'upsert': true},
+				function(err, cursorMachine) {
+					if(cursorMachine.timesseen==1){
+						cursorMachine.created = new Date();
+					}
+					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
+						cursorMachine.tasks = new Array();
+						cursorMachine.tasks.push({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+					}
+					if (!cursorMachine.tasks[cursorMachine.tasks.length-1].started) {
+						cursorMachine.tasks[cursorMachine.tasks.length-1].started = new Date();
+						collectionMachine.save(cursorMachine, {safe:true}, function(err,callback){
+							res.send(cursorMachine.tasks[cursorMachine.tasks.length-1]);
+						});
+					} else {
+						res.send({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+					}
+			});
 		});
-		res.send(qTask);
+	});
+});
+
+
+zelda.post('/client/:mac/pass', function(req, res){
+        hyrule.open(function(err, db_p){
+                hyrule.collection('machines', function(err, collectionMachine) {
+                        collectionMachine.findAndModify(
+                                {'mac':req.params.mac.toLowerCase()},
+                                [],
+                                {'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'safe': true, 'new': true, 'upsert': true},
+                                function(err, cursorMachine) {
+                                        if(cursorMachine.timesseen==1){
+                                                cursorMachine.created = new Date();
+                                        }
+					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
+                                                cursorMachine.tasks = new Array();
+						cursorMachine.tasks.push({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+					}
+					hyrule.collection('tasks', function(err, collectionTask) {
+						taskDone = cursorMachine.tasks.pop();
+						taskDone.machine = cursorMachine._id;
+						taskDone.completed = new Date();
+						collectionTask.insert(taskDone);
+					});
+					collectionMachine.save(cursorMachine, {safe:true}, function(err,callback){
+						res.send('ok');
+					});
+			});
+		});
+	});
+});
+
+zelda.get('/client/:mac/create', function(req,res){
+	hyrule.open(function(err, db_p){
+		hyrule.collection('machines', function(err, collectionMachine) {
+			collectionMachine.findAndModify(
+				{'mac':req.params.mac.toLowerCase()},
+				[],
+				{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'safe': true, 'new': true, 'upsert': true},
+				function(err, cursorMachine) {
+					if (cursorMachine.timesseen==1) {
+						cursorMachine.created = new Date();
+					}
+					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
+						cursorMachine.tasks = new Array();
+						cursorMachine.tasks.push({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+					}
+
+					cursorMachine.tasks.push({task:{execpass:'echo Hello from hyrule.'}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+					collectionMachine.save(cursorMachine, {safe:true}, function(err,callback){
+						res.send('ok');
+					});
+			});
+		});
 	});
 });
 
