@@ -3,6 +3,7 @@ var	db		= require('mongodb').Db,
 	express		= require('express');
 
 console.log('Welcome to Hyrule.');
+var defaultPause = 250;
 
 var hyrule = new db('hyrule', new server('localhost', 27017, {}));
 
@@ -22,7 +23,7 @@ zelda.get('/client/:mac/task', function(req, res){
 					}
 					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
 						cursorMachine.tasks = new Array();
-						cursorMachine.tasks.push({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+						cursorMachine.tasks.push({task:{pause:defaultPause}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
 					}
 					if (!cursorMachine.tasks[cursorMachine.tasks.length-1].started) {
 						cursorMachine.tasks[cursorMachine.tasks.length-1].started = new Date();
@@ -30,7 +31,7 @@ zelda.get('/client/:mac/task', function(req, res){
 							res.send(cursorMachine.tasks[cursorMachine.tasks.length-1]);
 						});
 					} else {
-						res.send({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+						res.send({task:{pause:defaultPause}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
 					}
 			});
 		});
@@ -51,7 +52,7 @@ zelda.post('/client/:mac/pass', function(req, res){
                                         }
 					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
                                                 cursorMachine.tasks = new Array();
-						cursorMachine.tasks.push({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+						cursorMachine.tasks.push({task:{pause:defaultPause}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
 					}
 					hyrule.collection('tasks', function(err, collectionTask) {
 						taskDone = cursorMachine.tasks.pop();
@@ -80,7 +81,7 @@ zelda.get('/client/:mac/create', function(req,res){
 					}
 					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
 						cursorMachine.tasks = new Array();
-						cursorMachine.tasks.push({task:{pause:250}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
+						cursorMachine.tasks.push({task:{pause:defaultPause}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
 					}
 
 					cursorMachine.tasks.push({task:{execpass:'echo Hello from hyrule.'}, _id: new hyrule.bson_serializer.ObjectID(), created: new Date()});
