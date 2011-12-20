@@ -43,19 +43,23 @@ function Client(mac) {
 				} else {
 					if (famMachine!=null) {
 						self.machine = famMachine;
-						if (!self.machine.created || !self.machine.tasks) {
-							self.machine.created = new Date();
-							self.machine.tasks = new Array();
+						if (!self.machine.created || !self.machine.jobs) {
+							if (!self.machine.created) {
+								self.machine.created = new Date();
+							}
+							if (!self.machine.jobs) {
+								self.machine.jobs = new Array();
+							}
 							collectionMachine.save(self.machine, {'safe':true}, function(errSave){
 								if (!errSave.ok) {
-									appendError({'errordata':errSave,'errorin':'initial created and tasks'});
+									appendError({'errordata':errSave,'errorin':'initial created and/or jobs'});
 								}
 							});
 						}
 
 // Every request from the client, we need to do up to here. ^^^^^^^^^^^^^
 
-	self.doyourthang(collectionMachine);				
+	self.doyourthang(collectionMachine);
 
 // And after here. vvvvvvvvvvv
 
@@ -69,55 +73,80 @@ function Client(mac) {
 	}
 
 	function taskThang(collectionMachine) {
-		if (self.machine.tasks.length && !self.machine.tasks[0].started) { // This is where you'll need to put in logic about simultaneous script running.
-			console.log('Starting new task on the client.');
-			console.log(self.machine.tasks[self.machine.tasks.length-1]);
-			self.machine.tasks[0].started = new Date();
-			collectionMachine.save(self.machine, {'safe':true}, function(errSave){
-				if (!errSave.ok) {
-					self.appendError({'errordata':errSave,'errorin':'collectionMachine.save'});
-					self.res.json(self.taskOut);
-				} else {
-					self.taskOut = self.machine.tasks[self.machine.tasks.length-1];
-					self.res.json(self.taskOut);
-				}
-			});
+		if (self.machine.jobs.length) {
+			if (!self.machine.jobs[0].started) {
+				self.machine.jobs[0].started = new Date();
+			}
+			if (self.machine.jobs[0].tasks.length && !self.machine.jobs[0].tasks[0].started) {
+				self.machine.jobs[0].tasks[0].started = new Date();
+				collectionMachine.save(self.machine, {'safe':true}, function(errSave){
+					if (!errSave.ok) {
+						self.appendError({'errordata':errSave,'errorin':'collectionMachine.save'});
+						self.res.json(self.taskOut);
+					} else {
+						self.taskOut = self.machine.jobs[0].tasks[0];
+						self.res.json(self.taskOut);
+					}
+				});
+			} else {
+				//self.appendError({'errordata':self.machine.jobs[0],'errorin':'No tasks in job.'});
+				self.res.json(self.taskOut);
+			}
 		} else {
 			self.res.json(self.taskOut);
 		}
 	}
 
 	function createThang(collectionMachine) {
-		self.machine.tasks.push({task:{execpass:'ping -n 5 horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date()});
+		self.machine.jobs.push({_id: new dbHyrule.bson_serializer.ObjectID(), created: new Date(), tasks: new Array()});
+		var n;
+		for(n=0;n<10;n++) {
+			self.machine.jobs[self.machine.jobs.length-1].tasks.push({task:{execpass:'ping -n 5 horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date()});
+		}
 		collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
 			if(!err.ok) {
 				appendError({'errorData':err,'errorin':'creating a task.'});
-				self.res.send('failed to create.');
+				self.res.send('failed to create.\n');
 			} else {
-				self.res.send('ok');
+				self.res.send('ok\n');
 			}
 		});
 	}
 
 	function passThang(collectionMachine) {
 		dbHyrule.collection('tasks', function(err, collectionTask) {
-			if (self.machine.tasks.length && self.machine.tasks[0].started) {
-				var taskDone = new Object();
-				taskDone = self.machine.tasks.shift();
-				taskDone.machine = self.machine._id;
-				taskDone.completed = new Date();
-				collectionTask.insert(taskDone);
-				collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
-					if (!err.ok) {
-						appendError({'errorData':err,'errorin':'updating machine on pass.'});
-						self.res.send('not ok.');
-					} else {
-						self.res.send('ok');
+			if (self.machine.jobs.length && self.machine.jobs[0].started) {
+				if (self.machine.jobs[0].tasks.length && self.machine.jobs[0].tasks[0].started) {
+					var taskDone = new Object();
+					taskDone = self.machine.jobs[0].tasks.shift();
+					taskDone.machine = self.machine._id;
+					taskDone.job = self.machine.jobs[0]._id;
+					taskDone.completed = new Date();
+					collectionTask.insert(taskDone);
+					if (self.machine.jobs[0].tasks.length==0) {
+						var jobDone = new Object();
+						jobDone = self.machine.jobs.shift();
+						jobDone.machine = self.machine._id;
+						jobDone.completed = new Date();
+						dbHyrule.collection('jobs', function(err, collectionJob) {
+							collectionJob.insert(jobDone);
+						});
 					}
-				});
+					collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
+						if (!err.ok) {
+							appendError({'errorData':err,'errorin':'updating machine on pass.'});
+							self.res.send('not ok.\n');
+						} else {
+							self.res.send('ok\n');
+						}
+					});
+				} else {
+					console.log('no tasks to pass.');
+					self.res.send('no tasks to pass.');
+				}
 			} else {
-				console.log('no tasks to pass.');
-				self.res.send('no tasks to pass.');
+				console.log('no jobs to pass.');
+				self.res.send('no jobs to pass.');
 			}
 		});
 	}
@@ -168,57 +197,16 @@ zelda.post('/client/:mac/pass', function(req, res){
 	zCurrent.pass(req, res);
 });
 
-/*	console.log('we got a pass.');
- 	var taskOut = {task:{pause:defaultPause}};
-	dbHyrule.collection('machines', function(err, collectionMachine) {
-		collectionMachine.findAndModify(
-			{'mac':req.params.mac.toLowerCase()},
-			[],
-			{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}},
-			{'safe': true, 'new': true, 'upsert': true},
-			function(err, cursorMachine) {
-				if (!err) {
-					console.log('pass.fam');
-					console.log(err);
-				} else {
-					if(cursorMachine.timesseen==1){
-						cursorMachine.created = new Date();
-					}
-					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
-						cursorMachine.tasks = new Array();
-						cursorMachine.tasks.push({task:{pause:defaultPause}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date()});
-					}
-				}
-			});
-	});
-});*/
-
 zelda.get('/client/:mac/create', function(req,res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.create(req, res);
 });
-/*	dbHyrule.collection('machines', function(err, collectionMachine) {
-		collectionMachine.findAndModify(
-			{'mac':req.params.mac.toLowerCase()},
-			[],
-			{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'safe': true, 'new': true, 'upsert': true},
-			function(err, cursorMachine) {
-				if (!err) {
-					console.log(err);
-				} else {
-					if (cursorMachine.timesseen==1) {
-						cursorMachine.created = new Date();
-					}
-					if(!cursorMachine.tasks||cursorMachine.tasks.length==0){
-						cursorMachine.tasks = new Array();
-						cursorMachine.tasks.push({task:{pause:defaultPause}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date()});
-					}
 
-				}
-		});
-	});
-	res.send('ok');
-});*/
+/*
+zelda.get('/client/:mac/job/create', function(req,res){
+	var jobCurrent = new Job(req.params.mac);
+	jobCurrent.create(req, res);
+}); */
 
 zelda.listen(3000);
 
