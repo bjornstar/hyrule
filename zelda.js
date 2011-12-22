@@ -4,7 +4,7 @@ var	express		= require('express');
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
-console.log('Welcome to Hyrule.');
+console.log('Hello Zelda, welcome to Hyrule.');
 console.log(new Date());
 
 var defaultPause = 50;
@@ -182,11 +182,9 @@ function Client(mac) {
 	return this;
 }
 
-dbHyrule.open(function() {
-	console.log('db opened.')
-});
+dbHyrule.open(function() {});
 
-zelda.get('/client/:mac/task', function(req, res){
+zelda.get('/client/:mac([0-9a-fA-F]+)/task', function(req, res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.task(req, res);
 });
@@ -201,12 +199,6 @@ zelda.get('/client/:mac/create', function(req,res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.create(req, res);
 });
-
-/*
-zelda.get('/client/:mac/job/create', function(req,res){
-	var jobCurrent = new Job(req.params.mac);
-	jobCurrent.create(req, res);
-}); */
 
 zelda.listen(3000);
 
