@@ -17,7 +17,7 @@ function Client(mac) {
 	var machine;
 
 	this.mac = mac.toLowerCase();
-	this.taskOut = {task:{pause:defaultPause}, default: true, created:new Date()}; // This is the default task.
+	this.taskOut = {task:{pause:defaultPause},_id:new dbHyrule.bson_serializer.ObjectID(),created:new Date()}; // This is the default task.
 
 	this.appendError = function(errorObject) {
 		console.log(errorObject);
@@ -37,7 +37,7 @@ function Client(mac) {
 			[],
 			{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'safe':true, 'new':true, 'upsert':true},
 			function(famErr, famMachine) {
-				if (!famErr.ok) {
+				if (famErr && !famErr.ok) {
 					self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify'});
 					self.res.json(self.taskOut);
 				} else {
@@ -51,7 +51,7 @@ function Client(mac) {
 								self.machine.jobs = new Array();
 							}
 							collectionMachine.save(self.machine, {'safe':true}, function(errSave){
-								if (!errSave.ok) {
+								if (errSave && !errSave.ok) {
 									appendError({'errordata':errSave,'errorin':'initial created and/or jobs'});
 								}
 							});
@@ -80,7 +80,7 @@ function Client(mac) {
 			if (self.machine.jobs[0].tasks.length && !self.machine.jobs[0].tasks[0].started) {
 				self.machine.jobs[0].tasks[0].started = new Date();
 				collectionMachine.save(self.machine, {'safe':true}, function(errSave){
-					if (!errSave.ok) {
+					if (errSave && !errSave.ok) {
 						self.appendError({'errordata':errSave,'errorin':'collectionMachine.save'});
 						self.res.json(self.taskOut);
 					} else {
@@ -89,7 +89,6 @@ function Client(mac) {
 					}
 				});
 			} else {
-				//self.appendError({'errordata':self.machine.jobs[0],'errorin':'No tasks in job.'});
 				self.res.json(self.taskOut);
 			}
 		} else {
@@ -104,7 +103,7 @@ function Client(mac) {
 			self.machine.jobs[self.machine.jobs.length-1].tasks.push({task:{execpass:'ping -n 5 horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date()});
 		}
 		collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
-			if(!err.ok) {
+			if(err && !err.ok) {
 				appendError({'errorData':err,'errorin':'creating a task.'});
 				self.res.send('failed to create.\n');
 			} else {
@@ -133,7 +132,7 @@ function Client(mac) {
 						});
 					}
 					collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
-						if (!err.ok) {
+						if (err && !err.ok) {
 							appendError({'errorData':err,'errorin':'updating machine on pass.'});
 							self.res.send('not ok.\n');
 						} else {
@@ -190,6 +189,12 @@ zelda.get('/client/:mac([0-9a-fA-F]+)/task', function(req, res){
 });
 
 
+zelda.post('/client/:mac/pass/:taskid', function(req, res){
+	console.log(req.params.taskid);
+	var zCurrent = new Client(req.params.mac);
+	zCurrent.pass(req, res);
+});
+
 zelda.post('/client/:mac/pass', function(req, res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.pass(req, res);
@@ -198,6 +203,14 @@ zelda.post('/client/:mac/pass', function(req, res){
 zelda.get('/client/:mac/create', function(req,res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.create(req, res);
+});
+
+zelda.get('/client/:mac/fail/:taskid', function(req, res){
+	console.log('failed' + req.params.taskid);
+});
+
+zelda.get('/client/:mac/fail', function(req, res){
+	console.log('something failed');
 });
 
 zelda.listen(3000);
