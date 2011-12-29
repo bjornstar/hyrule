@@ -75,10 +75,16 @@ function Client(mac) {
 	function taskThang(collectionMachine) {
 		if (self.machine.jobs.length) {
 			if (!self.machine.jobs[0].started) {
-				self.machine.jobs[0].started = new Date();
+				var jobStarted = new Date();
+				var jobTimeout = new Date(jobStarted.getTime() + self.machine.jobs[0].duration);
+				self.machine.jobs[0].started = jobStarted;
+				self.machine.jobs[0].timeout = jobTimeout;
 			}
-			if (self.machine.jobs[0].tasks.length && !self.machine.jobs[0].tasks[0].started) {
-				self.machine.jobs[0].tasks[0].started = new Date();
+			if (self.machine.jobs[0].tasks.length && !self.machine.jobs[0].tasks[0].started && !self.machine.jobs[0].locked) { //don't send if locked.
+				taskStarted = new Date();
+				taskTimeout = new Date(taskStarted.getTime() + self.machine.jobs[0].tasks[0].duration);
+				self.machine.jobs[0].tasks[0].started = taskStarted;
+				self.machine.jobs[0].tasks[0].timeout = taskTimeout;
 				collectionMachine.save(self.machine, {'safe':true}, function(errSave){
 					if (errSave && !errSave.ok) {
 						self.appendError({'errordata':errSave,'errorin':'collectionMachine.save'});
@@ -97,10 +103,15 @@ function Client(mac) {
 	}
 
 	function createThang(collectionMachine) {
-		self.machine.jobs.push({_id: new dbHyrule.bson_serializer.ObjectID(), created: new Date(), tasks: new Array()});
+		var jobDate = new Date();
+		self.machine.jobs.push({_id: new dbHyrule.bson_serializer.ObjectID(), created: jobDate, tasks: new Array(), duration:110000});
 		var n;
-		for(n=0;n<10;n++) {
-			self.machine.jobs[self.machine.jobs.length-1].tasks.push({task:{execpass:'ping -n 5 horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date()});
+		for(n=1;n<=10;n++) {
+			var taskDate = new Date();
+			var taskDuration = n*2000;
+			self.machine.jobs[self.machine.jobs.length-1].tasks.push(
+				{task:{execpass:'ping -n '+n+' horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: taskDate, duration: taskDuration}
+			);
 		}
 		collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
 			if(err && !err.ok) {
@@ -114,7 +125,7 @@ function Client(mac) {
 
 	function passThang(collectionMachine) {
 		dbHyrule.collection('tasks', function(err, collectionTask) {
-			if (self.machine.jobs.length && self.machine.jobs[0].started) {
+			if (self.machine.jobs.length && self.machine.jobs[0].started && !self.machine.jobs[0].locked) { // don't pass if locked.
 				if (self.machine.jobs[0].tasks.length && self.machine.jobs[0].tasks[0].started) {
 					var taskDone = new Object();
 					taskDone = self.machine.jobs[0].tasks.shift();
@@ -127,6 +138,7 @@ function Client(mac) {
 						jobDone = self.machine.jobs.shift();
 						jobDone.machine = self.machine._id;
 						jobDone.completed = new Date();
+						delete jobDone.tasks;
 						dbHyrule.collection('jobs', function(err, collectionJob) {
 							collectionJob.insert(jobDone);
 						});
