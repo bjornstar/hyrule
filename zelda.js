@@ -102,25 +102,8 @@ function Client(mac) {
 		}
 	}
 
-	function createThang(collectionMachine) {
-		var jobDate = new Date();
-		self.machine.jobs.push({_id: new dbHyrule.bson_serializer.ObjectID(), created: jobDate, tasks: new Array(), duration:110000});
-		var n;
-		for(n=1;n<=10;n++) {
-			var taskDate = new Date();
-			var taskDuration = n*2000;
-			self.machine.jobs[self.machine.jobs.length-1].tasks.push(
-				{task:{execpass:'ping -n '+n+' horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: taskDate, duration: taskDuration}
-			);
-		}
-		collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
-			if(err && !err.ok) {
-				appendError({'errorData':err,'errorin':'creating a task.'});
-				self.res.send('failed to create.\n');
-			} else {
-				self.res.send('ok\n');
-			}
-		});
+	function failThang(collectionMachine) {
+
 	}
 
 	function passThang(collectionMachine) {
@@ -170,14 +153,6 @@ function Client(mac) {
 		dbHyrule.collection('machines', getMachines);
 	}
 
-	function create(req, res) {
-		self.req = req;
-		self.res = res;
-		self.doyourthang = createThang;
-
-		dbHyrule.collection('machines', getMachines);
-	}
-
 	function pass(req, res) {
 		self.req = req;
 		self.res = res;
@@ -186,9 +161,17 @@ function Client(mac) {
 		dbHyrule.collection('machines', getMachines);
 	}
 
+	function fail(req, res) {
+		self.req = req;
+		self.res = res;
+		self.doyourthang = failThang;
+
+		dbHyrule.collection('machines', getMachines);
+	}
+
 	this.task = task;
-	this.create = create;
 	this.pass = pass;
+	this.fail = fail;
 	
 	return this;
 }
@@ -212,17 +195,14 @@ zelda.post('/client/:mac/pass', function(req, res){
 	zCurrent.pass(req, res);
 });
 
-zelda.get('/client/:mac/create', function(req,res){
-	var zCurrent = new Client(req.params.mac);
-	zCurrent.create(req, res);
-});
-
 zelda.get('/client/:mac/fail/:taskid', function(req, res){
-	console.log('failed' + req.params.taskid);
+	var zCurrent = new Client(req.params.mac);
+	zCurrent.fail(req, res);
 });
 
 zelda.get('/client/:mac/fail', function(req, res){
-	console.log('something failed');
+	var zCurrent = new Client(req.params.mac);
+	zCurrent.fail(req, res);
 });
 
 zelda.listen(3000);
