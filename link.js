@@ -20,7 +20,7 @@ link.get('/machines', function(req, res){
 			for (result in results) {
 				var mResult = results[result];
 				output += '<a href="/machine/' + mResult.mac + '">' + mResult.mac + '</a>';
-				output += ' ' + mResult.timesseen + ' ' + mResult.lastseen + ' ' + mResult.jobs.length + ' <a href="http://horcrux:3000/client/' +mResult.mac + '/create">add a job</a><br />\r\n';
+				output += ' ' + mResult.timesseen + ' ' + mResult.lastseen + ' ' + mResult.jobs.length + ' <a href="/machine/' +mResult._id + '/createjob">add a job</a><br />\r\n';
 			}
 			res.send(output);
 		});
@@ -53,19 +53,48 @@ link.get('/job/:jobid([0-9a-fA-F]{24})/retry', function(req, res) {
 	});
 });
 
-link.get('/machine/:mac([0-9a-fA-F]{12})', function(req, res) {
+link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})', function(req, res) {
+	var findObject;
+	if (req.params.machine.length==12) {
+		findObject = {mac:req.params.machine};
+	} else if (req.params.machine.length==24) {
+		var mObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.machine);
+		findObject = {_id:mObjectID};
+	}
 	dbHyrule.collection('machines', function(cError, cMachines) {
-		cMachines.findOne({mac:req.params.mac}, function(fError, fResult) {
+		cMachines.findOne(findObject, function(fError, fResult) {
 			res.send(fResult);
 		});
 	});
 });
 
-link.get('/machine/:machineid([0-9a-fA-F]{24})', function(req, res) {
-	var mObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.machineid);
+link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', function(req, res) {
 	dbHyrule.collection('machines', function(cError, cMachines) {
-		cMachines.findOne({_id:mObjectID}, function(fError, fResult) {
-			res.send(fResult);
+		var findObject;
+		if (req.params.machine.length==12) {
+			findObject = {mac:req.params.machine};
+		} else if (req.params.machine.length==24) {
+			var mObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.machine);
+			findObject = {_id:mObjectID};
+		}
+		cMachines.findOne(findObject, function(fError, fResult) {
+			if(fResult) {
+                		fResult.jobs.push({_id: new dbHyrule.bson_serializer.ObjectID(), created: new Date(), tasks: new Array(), duration:110000});
+                		for(var n=1;n<=10;n++) {
+		                        fResult.jobs[fResult.jobs.length-1].tasks.push(
+                		                {task:{execpass:'ping -n '+n+' horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date(), duration: n*2000}
+		                        );
+		                }
+                		cMachines.save(fResult, {'safe':true}, function(err,callback){
+		                        if(err && !err.ok) {
+                		                res.send('failed to create.\n');
+		                        } else {
+                		                res.send('ok\n');
+		                        }
+                		});
+			} else {
+				res.send('failed to find machine.\n');
+			}
 		});
 	});
 });

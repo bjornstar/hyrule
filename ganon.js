@@ -21,7 +21,9 @@ function ganonTime() {
 			if (fError) {
 				console.log(fError);
 			} else {
-				console.log(now + ' Job Timeout: ' + JSON.stringify(fResults));
+				if (fResults.length) {
+					console.log(now + ' Job Timeout: ' + JSON.stringify(fResults));
+				}
 			}
 		});
 	});
