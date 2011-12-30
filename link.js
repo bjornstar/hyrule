@@ -1,5 +1,6 @@
 var	mongodb		= require('mongodb');
 var	express		= require('express');
+var	io		= require('socket.io');
 
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
@@ -8,15 +9,37 @@ console.log('Hello Link, welcome to Hyrule.');
 console.log(new Date());
 
 var link = express.createServer();
-link.use(express.bodyParser());
+io = io.listen(link);
 
 dbHyrule.open(function() {});
+
+io.sockets.on('connection', function (socket) {
+	setInterval( function() {
+		dbHyrule.collection('machines', function(errCollection, collectionMachine) {
+        	        collectionMachine.find().sort({lastseen:-1}).toArray( function(errFind, results) {
+				socket.emit('news', results);
+			});
+		});
+	}, 1000);
+});
 
 link.get('/machines', function(req, res){
 	dbHyrule.collection('machines', function(errCollection, collectionMachine, callback) {
 		collectionMachine.find().sort({lastseen:-1}).toArray( function(errFind, results) {
 			var output = '';
+			output += '<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>\r\n';
+			output += '<script src="/socket.io/socket.io.js"></script>\r\n';
+			output += '<script type="text/javascript">\r\n';
+			output += 'var socket = io.connect();\r\n';
+			output += 'socket.on(\'connect\', function () {\r\n';
+			output += 'console.log(\'connected.\');\r\n';
+			output += '});\r\n';
+			output += 'socket.on(\'news\', function (data) {\r\n';
+			output += '$(\'#banana\').html(\'<p>\'+JSON.stringify(data)+\'</p>\\r\\n\');\r\n';
+			output += '});\r\n';
+			output += '</script>\r\n';
 			output += '<h1>Machines</h1>\r\n'; 
+			output += '<div id="banana"> </div>\r\n';
 			for (result in results) {
 				var mResult = results[result];
 				output += '<a href="/machine/' + mResult.mac + '">' + mResult.mac + '</a>';
@@ -119,7 +142,7 @@ link.get('/task/:taskid([0-9a-fA-F]{24})', function(req, res) {
 
 link.get('/inprogress', function(req, res){
 	dbHyrule.collection('machines', function(cError, cMachines, callback) {
-		cMachines.find({jobs:{'$elemMatch':{started:{'$ne':null}}}}).sort({lastseen:-1}).toArray( function(errFind, results) {
+		cMachines.find({'$or':[{'jobs.started':{'$ne':null}},{'jobs.tasks.started':{'$ne':null}}]}).sort({lastseen:-1}).toArray( function(errFind, results) {
 			var output = '';
 			output += '<h1>In Progress</h1>\r\n';
 			for (result in results) {
@@ -127,18 +150,16 @@ link.get('/inprogress', function(req, res){
 				output += mResult.mac + ' ';
 				for (job in mResult.jobs) {
 					var jResult = mResult.jobs[job];
-					if (jResult.started) {
-						output += 'Job: ';
-						output += jResult.started;
-						output += ' <a href="/job/' + jResult._id + '/retry">retry</a>';
-						output += '<br />\r\n';
-						for (task in jResult.tasks) {
-							var tResult = jResult.tasks[task];
-							if (tResult.started) {
-								output += 'Task: ';
-								output += JSON.stringify(tResult.task) + ' ';
-								output += tResult.started + '<br />\r\n';
-							}
+					output += 'Job: ';
+					output += jResult.started;
+					output += ' <a href="/job/' + jResult._id + '/retry">retry</a>';
+					output += '<br />\r\n';
+					for (task in jResult.tasks) {
+						var tResult = jResult.tasks[task];
+						if (tResult.started) {
+							output += 'Task: ';
+							output += JSON.stringify(tResult.task) + ' ';
+							output += tResult.started + '<br />\r\n';
 						}
 					}
 				}

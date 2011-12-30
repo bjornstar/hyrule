@@ -17,7 +17,7 @@ dbHyrule.open(function() {});
 function ganonTime() {
 	dbHyrule.collection('machines', function(eMachines, cMachines) {
 		var now = new Date();
-		cMachines.find({jobs:{'$elemMatch':{timeout:{'$lt':new Date()}}}}).toArray( function(fError, fResults) {
+		cMachines.find({$or:[{'jobs.tasks.timeout':{$lt:new Date()}},{'jobs.timeout':{$lt:new Date()}}]}).toArray( function(fError, fResults) {
 			if (fError) {
 				console.log(fError);
 			} else {
@@ -27,10 +27,8 @@ function ganonTime() {
 			}
 		});
 	});
-	
-	setTimeout(ganonTime, ganonTimer);
 }
 
-setTimeout(ganonTime, ganonTimer);
+setInterval(ganonTime, ganonTimer);
 
 ganon.listen(3002);
