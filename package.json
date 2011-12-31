@@ -3,7 +3,7 @@
   "description": "A magical wonderland where hardware gets tested.",
   "version": "0.0.1-4",
   "dependencies": {
-    "mongodb": ">=0.9.7",
+    "mongodb": ">=0.9.7.3",
     "express": ">=2.5.1",
     "socket.io": ">=0.8.7"
   },

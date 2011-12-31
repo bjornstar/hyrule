@@ -1,6 +1,8 @@
 var     mongodb         = require('mongodb');
 var     express         = require('express');
 
+var ObjectID = mongodb.BSONPure.ObjectID;
+
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 

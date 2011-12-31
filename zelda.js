@@ -1,6 +1,8 @@
 var	mongodb		= require('mongodb');
 var	express		= require('express');
 
+var ObjectID = mongodb.BSONPure.ObjectID;
+
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
@@ -17,14 +19,14 @@ function Client(mac) {
 	var machine;
 
 	this.mac = mac.toLowerCase();
-	this.taskOut = {task:{pause:defaultPause},_id:new dbHyrule.bson_serializer.ObjectID(),created:new Date()}; // This is the default task.
+	this.taskOut = {task:{pause:defaultPause},_id:new ObjectID(),created:new Date()}; // This is the default task.
 
 	this.appendError = function(errorObject) {
 		console.log(errorObject);
 		if (!self.taskOut.errors||self.taskOut.errors.length==0) {
 			self.taskOut.errors = new Array();
 		}
-		self.taskOut.errors.push({'error':errorObject,_id:new dbHyrule.bson_serializer.ObjectID(),'created':new Date()});
+		self.taskOut.errors.push({'error':errorObject,_id:new ObjectID(),'created':new Date()});
 	}
 
 	function getMachines(errCollection, collectionMachine, callback) {
@@ -35,7 +37,7 @@ function Client(mac) {
 			collectionMachine.findAndModify(
 			{'mac':self.mac},
 			[],
-			{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'safe':true, 'new':true, 'upsert':true},
+			{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'new':true, 'upsert':true},
 			function(famErr, famMachine) {
 				if (famErr && !famErr.ok) {
 					self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify'});
@@ -50,7 +52,7 @@ function Client(mac) {
 							if (!self.machine.jobs) {
 								self.machine.jobs = new Array();
 							}
-							collectionMachine.save(self.machine, {'safe':true}, function(errSave){
+							collectionMachine.save(self.machine, {}, function(errSave){
 								if (errSave && !errSave.ok) {
 									appendError({'errordata':errSave,'errorin':'initial created and/or jobs'});
 								}
@@ -85,7 +87,7 @@ function Client(mac) {
 				taskTimeout = new Date(taskStarted.getTime() + self.machine.jobs[0].tasks[0].duration);
 				self.machine.jobs[0].tasks[0].started = taskStarted;
 				self.machine.jobs[0].tasks[0].timeout = taskTimeout;
-				collectionMachine.save(self.machine, {'safe':true}, function(errSave){
+				collectionMachine.save(self.machine, {}, function(errSave){
 					if (errSave && !errSave.ok) {
 						self.appendError({'errordata':errSave,'errorin':'collectionMachine.save'});
 						self.res.json(self.taskOut);
@@ -126,7 +128,7 @@ function Client(mac) {
 							collectionJob.insert(jobDone);
 						});
 					}
-					collectionMachine.save(self.machine, {'safe':true}, function(err,callback){
+					collectionMachine.save(self.machine, {}, function(err,callback){
 						if (err && !err.ok) {
 							appendError({'errorData':err,'errorin':'updating machine on pass.'});
 							self.res.send('not ok.\n');

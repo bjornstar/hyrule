@@ -2,6 +2,8 @@ var	mongodb		= require('mongodb');
 var	express		= require('express');
 var	io		= require('socket.io');
 
+var ObjectID = mongodb.BSONPure.ObjectID;
+
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
@@ -20,7 +22,7 @@ io.sockets.on('connection', function (socket) {
 				socket.emit('news', results);
 			});
 		});
-	}, 1000);
+	}, 50);
 });
 
 link.get('/machines', function(req, res){
@@ -51,7 +53,7 @@ link.get('/machines', function(req, res){
 });
 
 link.get('/job/:jobid([0-9a-fA-F]{24})/retry', function(req, res) {
-	var jObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.jobid);
+	var jObjectID = new ObjectID(req.params.jobid);
 	dbHyrule.collection('machines', function(eCollection, cMachines) {
 		cMachines.findAndModify(
 				{jobs:{'$elemMatch':{_id:jObjectID}}},
@@ -81,7 +83,7 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})', function(req, res
 	if (req.params.machine.length==12) {
 		findObject = {mac:req.params.machine};
 	} else if (req.params.machine.length==24) {
-		var mObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.machine);
+		var mObjectID = new ObjectID(req.params.machine);
 		findObject = {_id:mObjectID};
 	}
 	dbHyrule.collection('machines', function(cError, cMachines) {
@@ -97,18 +99,18 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', functio
 		if (req.params.machine.length==12) {
 			findObject = {mac:req.params.machine};
 		} else if (req.params.machine.length==24) {
-			var mObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.machine);
+			var mObjectID = new ObjectID(req.params.machine);
 			findObject = {_id:mObjectID};
 		}
 		cMachines.findOne(findObject, function(fError, fResult) {
 			if(fResult) {
-                		fResult.jobs.push({_id: new dbHyrule.bson_serializer.ObjectID(), created: new Date(), tasks: new Array(), duration:110000});
+                		fResult.jobs.push({_id: new ObjectID(), created: new Date(), tasks: new Array(), duration:110000});
                 		for(var n=1;n<=10;n++) {
 		                        fResult.jobs[fResult.jobs.length-1].tasks.push(
-                		                {task:{execpass:'ping -n '+n+' horcrux'}, _id: new dbHyrule.bson_serializer.ObjectID(), created: new Date(), duration: n*2000}
+                		                {task:{execpass:'ping -n '+n+' horcrux'}, _id: new ObjectID(), created: new Date(), duration: n*2000}
 		                        );
 		                }
-                		cMachines.save(fResult, {'safe':true}, function(err,callback){
+                		cMachines.save(fResult, {}, function(err,callback){
 		                        if(err && !err.ok) {
                 		                res.send('failed to create.\n');
 		                        } else {
@@ -123,7 +125,7 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', functio
 });
 
 link.get('/job/:jobid([0-9a-fA-F]{24})', function(req, res) {
-	var jObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.jobid);
+	var jObjectID = new ObjectID(req.params.jobid);
 	dbHyrule.collection('jobs', function(cError, cJobs) {
 		cJobs.findOne({_id:jObjectID}, function(fError, fResult) {
 			res.send(fResult);
@@ -132,7 +134,7 @@ link.get('/job/:jobid([0-9a-fA-F]{24})', function(req, res) {
 });
 
 link.get('/task/:taskid([0-9a-fA-F]{24})', function(req, res) {
-	var tObjectID = new dbHyrule.bson_serializer.ObjectID(req.params.taskid);
+	var tObjectID = new ObjectID(req.params.taskid);
 	dbHyrule.collection('tasks', function(cError, cTasks) {
 		cTasks.findOne({_id:tObjectID}, function(fError, fResult) {
 			res.send(fResult);
