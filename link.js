@@ -2,27 +2,61 @@ var	mongodb		= require('mongodb');
 var	express		= require('express');
 var	io		= require('socket.io');
 
-var ObjectID = mongodb.BSONPure.ObjectID;
+var ObjectID = mongodb.ObjectID;
 
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
-console.log('Hello Link, welcome to Hyrule.');
-console.log(new Date());
+var timeBoot = new Date();
+
+var appName = 'Link';
+
+dbHyrule.open(function() {
+        console.log('Welcome to Hyrule.');
+        var timeDBOpen = new Date();
+        console.log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + appName + ' to connect to the database.');
+});
+
+console.log('Hello, my name is ' + appName + '!');
 
 var link = express.createServer();
 io = io.listen(link);
 
-dbHyrule.open(function() {});
+var socketCollection = new Object();
+socketCollection.size = 0;
+socketCollection.frequency = 100;
 
 io.sockets.on('connection', function (socket) {
-	setInterval( function() {
+	var socketInterval = setInterval( function() {
 		dbHyrule.collection('machines', function(errCollection, collectionMachine) {
-        	        collectionMachine.find().sort({lastseen:-1}).toArray( function(errFind, results) {
-				socket.emit('news', results);
+        	        collectionMachine.find().sort({mac:1}).toArray( function(errFind, rMachines) {
+				var output;
+				var totalTimesseen = 0;
+				for (rMachine in rMachines) {
+					var cMachine = rMachines[rMachine];
+					totalTimesseen += cMachine.timesseen;
+				}
+				var output = new Object();
+				output.simultaneousUsers = socketCollection.size;
+				output.dashboardFrequency = socketCollection.frequency;
+				output.totalUpdatecount = totalTimesseen;
+				output.deltaUpdatecount = totalTimesseen - socketCollection[socket.id].prevTimesseen;
+				output.perclientTime = Math.floor(output.dashboardFrequency / output.deltaUpdatecount);
+				//output.machines = rMachines;
+				socket.emit('dashboard', output);
+				socketCollection[socket.id].prevTimesseen = totalTimesseen;
+				console.log(socketCollection);
 			});
 		});
-	}, 50);
+	}, socketCollection.frequency);
+	socketCollection[socket.id] = {'prevTimesseen':0};
+	socketCollection.size += 1;
+	socket.on('disconnect', function() {
+		delete socketCollection[socket.id];
+		socketCollection.size -= 1;
+		clearInterval(socketInterval);
+		console.log('Client disconnected.');
+	});
 });
 
 link.get('/machines', function(req, res){
@@ -36,7 +70,7 @@ link.get('/machines', function(req, res){
 			output += 'socket.on(\'connect\', function () {\r\n';
 			output += 'console.log(\'connected.\');\r\n';
 			output += '});\r\n';
-			output += 'socket.on(\'news\', function (data) {\r\n';
+			output += 'socket.on(\'dashboard\', function (data) {\r\n';
 			output += '$(\'#banana\').html(\'<p>\'+JSON.stringify(data)+\'</p>\\r\\n\');\r\n';
 			output += '});\r\n';
 			output += '</script>\r\n';

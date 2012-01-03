@@ -1,20 +1,23 @@
 var     mongodb         = require('mongodb');
-var     express         = require('express');
 
 var ObjectID = mongodb.BSONPure.ObjectID;
 
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
-console.log('Hello Ganon, welcome to Hyrule.');
-console.log(new Date());
+var timeBoot = new Date();
 
-var ganon = express.createServer();
-ganon.use(express.bodyParser());
+var appName = 'Ganon';
+
+dbHyrule.open(function() {
+        console.log('Welcome to Hyrule.');
+        var timeDBOpen = new Date();
+        console.log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + appName + 'to connect to the database.');
+});
+
+console.log('Hello, my name is ' + appName + '!');
 
 var ganonTimer = 1000;
-
-dbHyrule.open(function() {});
 
 function ganonTime() {
 	dbHyrule.collection('machines', function(eMachines, cMachines) {
@@ -32,5 +35,3 @@ function ganonTime() {
 }
 
 setInterval(ganonTime, ganonTimer);
-
-ganon.listen(3002);

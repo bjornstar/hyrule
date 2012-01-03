@@ -1,25 +1,34 @@
 var	mongodb		= require('mongodb');
 var	express		= require('express');
 
-var ObjectID = mongodb.BSONPure.ObjectID;
+var ObjectID = mongodb.ObjectID;
 
 var serverHorcrux = new mongodb.Server('localhost', 27017);
 var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
-console.log('Hello Zelda, welcome to Hyrule.');
-console.log(new Date());
+var timeBoot = new Date();
+
+var appName = 'Zelda';
+
+dbHyrule.open(function() {
+	console.log('Welcome to Hyrule.');
+	var timeDBOpen = new Date();
+	console.log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + appName + ' to connect to the database.');
+});
+
+console.log('Hello, my name is ' + appName + '!');
 
 var defaultPause = 50;
 
 var zelda = express.createServer();
-zelda.use(express.bodyParser());
 
 function Client(mac) {
 	var self = this; //You have to do this so you can reference these things later.
 	var machine;
+	var start = new Date();
 
 	this.mac = mac.toLowerCase();
-	this.taskOut = {task:{pause:defaultPause},_id:new ObjectID(),created:new Date()}; // This is the default task.
+	this.taskOut = {task:{pause:defaultPause}}; //,_id:new ObjectID(),created:new Date()}; // This is the default task.
 
 	this.appendError = function(errorObject) {
 		console.log(errorObject);
@@ -34,15 +43,21 @@ function Client(mac) {
 			self.appendError({'errordata':errCollection,'errorin':'hyrule.collection(\'machines\')'});
 			self.res.json(self.taskOut);
 		} else {
+
 			collectionMachine.findAndModify(
 			{'mac':self.mac},
 			[],
-			{'$set':{'lastseen':new Date()}, '$inc':{'timesseen':1}}, {'new':true, 'upsert':true},
+			{'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}}, {'new':true, 'upsert':true},
 			function(famErr, famMachine) {
 				if (famErr && !famErr.ok) {
 					self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify'});
 					self.res.json(self.taskOut);
 				} else {
+	        self.end = new Date();
+                console.log(self.end - self.start);
+		self.res.json(self.taskOut);
+
+/*
 					if (famMachine!=null) {
 						self.machine = famMachine;
 						if (!self.machine.created || !self.machine.jobs) {
@@ -68,7 +83,7 @@ function Client(mac) {
 					} else {
 						self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify:no results'});
 						self.res.json(self.taskOut);
-					}
+					} */
 				}
 			});
 		}
@@ -97,9 +112,12 @@ function Client(mac) {
 					}
 				});
 			} else {
+				console.log('.');
 				self.res.json(self.taskOut);
 			}
 		} else {
+			self.end = new Date();
+			console.log(self.end - self.start);
 			self.res.json(self.taskOut);
 		}
 	}
@@ -150,8 +168,9 @@ function Client(mac) {
 	function task(req, res) {
 		self.req = req;
 		self.res = res;
+		self.start = new Date();
 		self.doyourthang = taskThang;
-
+	
 		dbHyrule.collection('machines', getMachines);
 	}
 
@@ -178,31 +197,29 @@ function Client(mac) {
 	return this;
 }
 
-dbHyrule.open(function() {});
-
-zelda.get('/client/:mac([0-9a-fA-F]+)/task', function(req, res){
+zelda.get('/client/:mac([0-9a-fA-F]{12})/task', function(req, res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.task(req, res);
 });
 
 
-zelda.post('/client/:mac/pass/:taskid', function(req, res){
+zelda.post('/client/:mac([0-9a-fA-F]{12})/pass/:taskid([0-9a-fA-F]{24})', function(req, res){
 	console.log(req.params.taskid);
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.pass(req, res);
 });
 
-zelda.post('/client/:mac/pass', function(req, res){
+zelda.post('/client/:mac([0-9a-fA-F]{12})/pass', function(req, res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.pass(req, res);
 });
 
-zelda.get('/client/:mac/fail/:taskid', function(req, res){
+zelda.get('/client/:mac([0-9a-fA-F]{12})/fail/:taskid([0-9a-fA-F]{24})', function(req, res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.fail(req, res);
 });
 
-zelda.get('/client/:mac/fail', function(req, res){
+zelda.get('/client/:mac([0-9a-fA-F]{12})/fail', function(req, res){
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.fail(req, res);
 });
