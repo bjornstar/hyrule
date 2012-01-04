@@ -27,35 +27,43 @@ socketCollection.size = 0;
 socketCollection.frequency = 100;
 
 io.sockets.on('connection', function (socket) {
-	var socketInterval = setInterval( function() {
-		dbHyrule.collection('machines', function(errCollection, collectionMachine) {
-        	        collectionMachine.find().sort({mac:1}).toArray( function(errFind, rMachines) {
-				var output;
-				var totalTimesseen = 0;
-				for (rMachine in rMachines) {
-					var cMachine = rMachines[rMachine];
-					totalTimesseen += cMachine.timesseen;
-				}
-				var output = new Object();
-				output.simultaneousUsers = socketCollection.size;
-				output.dashboardFrequency = socketCollection.frequency;
-				output.totalUpdatecount = totalTimesseen;
-				output.deltaUpdatecount = totalTimesseen - socketCollection[socket.id].prevTimesseen;
-				output.perclientTime = Math.floor(output.dashboardFrequency / output.deltaUpdatecount);
-				//output.machines = rMachines;
-				socket.emit('dashboard', output);
-				socketCollection[socket.id].prevTimesseen = totalTimesseen;
-				console.log(socketCollection);
-			});
-		});
-	}, socketCollection.frequency);
-	socketCollection[socket.id] = {'prevTimesseen':0};
 	socketCollection.size += 1;
 	socket.on('disconnect', function() {
+		if (socketCollection[socket.id]) {
+			clearInterval(socketCollection[socket.id].socketInterval);
+		}
 		delete socketCollection[socket.id];
 		socketCollection.size -= 1;
-		clearInterval(socketInterval);
 		console.log('Client disconnected.');
+	});
+	socket.on('dashstart', function (data) {
+		socketCollection[socket.id] = {'prevTimesseen':0};
+		socketCollection[socket.id].socketInterval = setInterval( function() {
+			dbHyrule.collection('machines', function(errCollection, collectionMachine) {
+        		        collectionMachine.find().sort({mac:1}).toArray( function(errFind, rMachines) {
+					var output;
+					var totalTimesseen = 0;
+					for (rMachine in rMachines) {
+						var cMachine = rMachines[rMachine];
+						totalTimesseen += cMachine.timesseen;
+					}
+					var output = new Object();
+					output.simultaneousUsers = socketCollection.size;
+					output.dashFrequency = socketCollection.frequency;
+					output.totalUpdatecount = totalTimesseen;
+					output.deltaUpdatecount = totalTimesseen - socketCollection[socket.id].prevTimesseen;
+					output.perclientTime = Math.floor(output.dashFrequency / output.deltaUpdatecount);
+					socket.emit('dash', output);
+					socketCollection[socket.id].prevTimesseen = totalTimesseen;
+					console.log(socketCollection);
+				});
+			});
+		}, socketCollection.frequency);
+	});
+	socket.on('rdmsrstart', function (data) {
+		var output;
+		output = data;
+		socket.emit('rdmsr', output);
 	});
 });
 
@@ -67,10 +75,8 @@ link.get('/machines', function(req, res){
 			output += '<script src="/socket.io/socket.io.js"></script>\r\n';
 			output += '<script type="text/javascript">\r\n';
 			output += 'var socket = io.connect();\r\n';
-			output += 'socket.on(\'connect\', function () {\r\n';
-			output += 'console.log(\'connected.\');\r\n';
-			output += '});\r\n';
-			output += 'socket.on(\'dashboard\', function (data) {\r\n';
+			output += 'socket.emit(\'dashstart\');\r\n';
+			output += 'socket.on(\'dash\', function (data) {\r\n';
 			output += '$(\'#banana\').html(\'<p>\'+JSON.stringify(data)+\'</p>\\r\\n\');\r\n';
 			output += '});\r\n';
 			output += '</script>\r\n';
@@ -79,7 +85,11 @@ link.get('/machines', function(req, res){
 			for (result in results) {
 				var mResult = results[result];
 				output += '<a href="/machine/' + mResult.mac + '">' + mResult.mac + '</a>';
-				output += ' ' + mResult.timesseen + ' ' + mResult.lastseen + ' ' + mResult.jobs.length + ' <a href="/machine/' +mResult._id + '/createjob">add a job</a><br />\r\n';
+				output += ' ' + mResult.timesseen;
+				output += ' ' + mResult.lastseen;
+				output += ' ' + mResult.jobs.length;
+				output += ' <a href="/machine/' +mResult._id + '/createjob">add a job</a>';
+				output += '<br />\r\n';
 			}
 			res.send(output);
 		});
@@ -127,6 +137,52 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})', function(req, res
 	});
 });
 
+link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/jobs', function(req, res) {
+        dbHyrule.collection('machines', function(cError, cMachines) {
+                var findObject;
+                if (req.params.machine.length==12) {
+                        findObject = {mac:req.params.machine};
+                } else if (req.params.machine.length==24) {
+                        var mObjectID = new ObjectID(req.params.machine);
+                        findObject = {_id:mObjectID};
+                }
+                cMachines.findOne(findObject, {jobs:1}, function(fError, fResult) {
+                        if(fResult) {
+				res.send(fResult);
+			} else {
+                                res.send('failed to find machine.\n');
+                        }
+                });
+        });
+});
+
+link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/rdmsr/:msr([0-9a-fA-F]+)/:affinity([0-9a-fA-F]+)?', function(req, res, next) {
+	if (req.params.msr.length>4) {
+		next();
+	}
+	var output = '';
+	output += '<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>\r\n';
+	output += '<script src="/socket.io/socket.io.js"></script>\r\n';
+	output += '<script type="text/javascript">\r\n';
+	output += 'var socket = io.connect();\r\n';
+	output += 'var hope;\r\n';
+	var MSRs = new Object();
+	MSRs.machines = new Object();
+	MSRs.machines[req.params.machine] = new Object();
+	MSRs.machines[req.params.machine].msrs = new Object();
+	MSRs.machines[req.params.machine].msrs[req.params.msr] = req.params.affinity;
+	output += 'socket.emit(\'rdmsrstart\', ' + JSON.stringify(MSRs) + ');\r\n';
+	output += 'socket.on(\'rdmsr\', function (data) {\r\n';
+	output += 'hope = data;\r\n';
+	output += '$(\'#banana\').html(\'<p>\'+JSON.stringify(data)+\'</p>\\r\\n\');\r\n';
+	output += '});\r\n';
+	output += '</script>\r\n';
+	output += '<h1>rdmsr ' + req.params.msr + '</h1>\r\n';
+	output += '<div id="banana"> </div>\r\n';
+
+	res.send(output);
+});
+
 link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', function(req, res) {
 	dbHyrule.collection('machines', function(cError, cMachines) {
 		var findObject;
@@ -141,7 +197,7 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', functio
                 		fResult.jobs.push({_id: new ObjectID(), created: new Date(), tasks: new Array(), duration:110000});
                 		for(var n=1;n<=10;n++) {
 		                        fResult.jobs[fResult.jobs.length-1].tasks.push(
-                		                {task:{execpass:'ping -n '+n+' horcrux'}, _id: new ObjectID(), created: new Date(), duration: n*2000}
+                		                {task:{execpass:'c:\\rdmsr.exe 1486 0'}, _id: new ObjectID(), created: new Date(), duration: 2000}
 		                        );
 		                }
                 		cMachines.save(fResult, {}, function(err,callback){
