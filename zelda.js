@@ -53,11 +53,7 @@ function Client(mac) {
 					self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify'});
 					self.res.json(self.taskOut);
 				} else {
-	        self.end = new Date();
-                console.log(self.end - self.start);
-		self.res.json(self.taskOut);
 
-/*
 					if (famMachine!=null) {
 						self.machine = famMachine;
 						if (!self.machine.created || !self.machine.jobs) {
@@ -83,7 +79,7 @@ function Client(mac) {
 					} else {
 						self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify:no results'});
 						self.res.json(self.taskOut);
-					} */
+					}
 				}
 			});
 		}
