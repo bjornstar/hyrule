@@ -12,7 +12,7 @@ var appName = 'Ganon';
 dbHyrule.open(function() {
         console.log('Welcome to Hyrule.');
         var timeDBOpen = new Date();
-        console.log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + appName + 'to connect to the database.');
+        console.log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + appName + ' to connect to the database.');
 });
 
 console.log('Hello, my name is ' + appName + '!');
@@ -27,11 +27,19 @@ function ganonTime() {
 				console.log(fError);
 			} else {
 				if (fResults.length) {
-					console.log(now + ' Job Timeout: ' + JSON.stringify(fResults));
+					failTask(fResults);
 				}
 			}
 		});
 	});
 }
+
+function failTask(machine) {
+	var taskDone = new Object()
+	taskDone = machine.jobs;
+	dbHyrule.collection('tasks', function(eTasks, cTasks) {
+		console.log('A job or task timed out.');
+	});
+}		
 
 setInterval(ganonTime, ganonTimer);

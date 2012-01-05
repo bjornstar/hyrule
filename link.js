@@ -39,34 +39,38 @@ io.sockets.on('connection', function (socket) {
 	socket.on('dashstart', function (data) {
 		socketCollection[socket.id] = {'prevTimesseen':0};
 		socketCollection[socket.id].socketInterval = setInterval( function() {
-			dbHyrule.collection('machines', function(errCollection, collectionMachine) {
-        		        collectionMachine.find().sort({mac:1}).toArray( function(errFind, rMachines) {
-					var output;
-					var totalTimesseen = 0;
-					for (rMachine in rMachines) {
-						var cMachine = rMachines[rMachine];
-						totalTimesseen += cMachine.timesseen;
-					}
-					var output = new Object();
-					output.simultaneousUsers = socketCollection.size;
-					output.dashFrequency = socketCollection.frequency;
-					output.totalUpdatecount = totalTimesseen;
-					output.deltaUpdatecount = totalTimesseen - socketCollection[socket.id].prevTimesseen;
-					output.perclientTime = Math.floor(output.dashFrequency / output.deltaUpdatecount);
-					socket.emit('dash', output);
-					socketCollection[socket.id].prevTimesseen = totalTimesseen;
-					console.log(socketCollection);
+			if (socketCollection[socket.id]) {
+				dbHyrule.collection('machines', function(errCollection, collectionMachine) {
+        			        collectionMachine.find().sort({mac:1}).toArray( function(errFind, rMachines) {
+						var output;
+						var totalTimesseen = 0;
+						for (rMachine in rMachines) {
+							var cMachine = rMachines[rMachine];
+							totalTimesseen += cMachine.timesseen;
+						}
+						var output = new Object();
+						output.simultaneousUsers = socketCollection.size;
+						output.dashFrequency = socketCollection.frequency;
+						output.totalUpdatecount = totalTimesseen;
+						output.deltaUpdatecount = totalTimesseen - socketCollection[socket.id].prevTimesseen;
+						output.perclientTime = Math.floor(output.dashFrequency / output.deltaUpdatecount);
+						socket.emit('dash', output);
+						socketCollection[socket.id].prevTimesseen = totalTimesseen;
+					});
 				});
-			});
+			} else {
+				console.log('socket is gone');
+			}
 		}, socketCollection.frequency);
 	});
 	socket.on('rdmsrstart', function (data) {
 		socketCollection[socket.id] = new Object();
 		socketCollection[socket.id].socketInterval = setInterval( function() {
-			rdmsrs(data);
+			//console.log('I\'m Polling!');
 		});
+		createRdmsrPollingJob(data);
 		var output = '';
-		output += 'beginning poll of machine' ;
+		output += JSON.stringify(data) ;
 		socket.emit('rdmsr', output);
 	});
 });
@@ -118,7 +122,6 @@ link.get('/job/:jobid([0-9a-fA-F]{24})/retry', function(req, res) {
 						delete jUpdate.tasks[task].started;
 						delete jUpdate.tasks[task].timeout;
 					}
-					console.log(JSON.stringify(jUpdate));
 					cMachines.update({jobs:{'$elemMatch':{_id:jObjectID}}}, {'$set':{'jobs.$.tasks':jUpdate.tasks}, '$unset':{'jobs.$.locked':1}}, function(eee, rrr) {
 						res.send('ok');
 					});
@@ -160,39 +163,45 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/jobs', function(req
         });
 });
 
-function rdmsrs(rdmsrObject) {
+function createRdmsrPollingJob(rdmsrObject) {
 	dbHyrule.collection('machines', function(cError, cMachines) {
 		for (machine in rdmsrObject.machines) {
+
 			var findObject;
+
 			if (machine.length==12) {
 				findObject = {mac:machine};
 			} else if (machine.length==24) {
 				var mObjectID = new ObjectID(machine);
 				findObject = {_id:mObjectID};
 			}
-			cMachines.findOne(findObject, function(fError, fResult) {
-				if(fResult) {
-                			fResult.jobs.push({_id: new ObjectID(), created: new Date(), tasks: new Array(), duration:1000});
-                			for(msr in rdmsrObject.machines[machine].msrs) {
-						var taskObject = new Object();
-						taskObject._id = new ObjectID();
-						taskObject.created = new Date();
-						taskObject.duration = 1000;
-						taskObject.task = new Object();
-						taskObject.task.rdmsr = new Object();
-						taskObject.task.rdmsr[msr] = rdmsrObject.machines[machine].msrs[msr];
-		                	        fResult.jobs[fResult.jobs.length-1].tasks.push(taskObject);
-			                }
-                			cMachines.save(fResult, {}, function(err,callback){
-		        	                if(err && !err.ok) {
-                			                res.send('failed to create.\n');
-		                        	} else {
 
-			                        }
-        	        		});
-				} else {
-					res.send('failed to find machine.\n');
-				}
+			var jPoll = new Object();
+			jPoll._id = new ObjectID();
+			jPoll.created = new Date();
+			jPoll.tasks = new Array();
+			jPoll.duration = 10000;
+			jPoll.poll = 100;
+
+			for(msr in rdmsrObject.machines[machine].msrs) {
+				var tPoll = new Object();
+				tPoll._id = new ObjectID();
+				tPoll.created = new Date();
+				tPoll.duration = 1000;
+				tPoll.poll = 100;
+				tPoll.task = new Object();
+				tPoll.task.rdmsr = new Object();
+				tPoll.task.rdmsr[msr] = rdmsrObject.machines[machine].msrs[msr];
+				jPoll.tasks.push(tPoll);
+			}
+
+			cMachines.findAndModify( // we use findAndModify because of its atomic operation, otherwise we could lose data.
+			findObject,
+			[],
+			{'$push':{'jobs':jPoll}},
+			{new:true},
+			function(fError, fResult) {
+				//console.log(fResult);
 			});
 		}
 	});
@@ -214,6 +223,9 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/rdmsr/:msr([0-9a-fA
 	MSRs.machines[req.params.machine] = new Object();
 	MSRs.machines[req.params.machine].msrs = new Object();
 	MSRs.machines[req.params.machine].msrs[req.params.msr] = req.params.affinity;
+	for (var jj=0;jj<=100;jj++) {
+		MSRs.machines[req.params.machine].msrs[jj] = jj;
+	}
 	output += 'socket.emit(\'rdmsrstart\', ' + JSON.stringify(MSRs) + ');\r\n';
 	output += 'socket.on(\'rdmsr\', function (data) {\r\n';
 	output += 'hope = data;\r\n';
@@ -237,17 +249,25 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', functio
 		}
 		cMachines.findOne(findObject, function(fError, fResult) {
 			if(fResult) {
-                		fResult.jobs.push({_id: new ObjectID(), created: new Date(), tasks: new Array(), duration:110000});
+				var jPoll = new Object();
+				jPoll._id = new ObjectID();
+				jPoll.created = new Date();
+				jPoll.tasks = new Array();
+				jPoll.duration = 110000;
+                		fResult.jobs.push(jPoll);
                 		for(var n=1;n<=10;n++) {
-		                        fResult.jobs[fResult.jobs.length-1].tasks.push(
-                		                {task:{execpass:'c:\\rdmsr.exe 1486 0'}, _id: new ObjectID(), created: new Date(), duration: 2000}
-		                        );
+					var tPoll = new Object();
+					tPoll._id = new ObjectID();
+					tPoll.created = new Date();
+					tPoll.duration = 2000;
+					tPoll.task = {execpass:'c:\\rdmsr.exe 1486 0'};
+		                        fResult.jobs[fResult.jobs.length-1].tasks.push(tPoll);
 		                }
-                		cMachines.save(fResult, {}, function(err,callback){
+				cMachines.save(fResult, {}, function(err,callback){ // this is dangerous, we could lose data.
 		                        if(err && !err.ok) {
                 		                res.send('failed to create.\n');
 		                        } else {
-                		                res.send('ok\n');
+                		                res.send(JSON.stringify(jPoll));
 		                        }
                 		});
 			} else {
@@ -307,9 +327,9 @@ link.get('/inprogress', function(req, res){
 
 link.get('/tasks', function(req, res){
 	dbHyrule.collection('tasks', function(cError, cTasks, callback) {
-		cTasks.find().sort({started:-1}).toArray( function(errFind, results) {
+		cTasks.find().sort({started:-1}).limit(50).toArray( function(errFind, results) {
 			var output = '';
-			output += '<h1>Tasks</h1>\r\n';
+			output += '<h1>Last 50 Tasks</h1>\r\n';
 			for (result in results) {
 				var tResult = results[result];
 				output += '<a href="/task/' + tResult._id + '">' + tResult._id + '</a>';
