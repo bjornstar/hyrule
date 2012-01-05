@@ -61,8 +61,12 @@ io.sockets.on('connection', function (socket) {
 		}, socketCollection.frequency);
 	});
 	socket.on('rdmsrstart', function (data) {
-		var output;
-		output = data;
+		socketCollection[socket.id] = new Object();
+		socketCollection[socket.id].socketInterval = setInterval( function() {
+			rdmsrs(data);
+		});
+		var output = '';
+		output += 'beginning poll of machine' ;
 		socket.emit('rdmsr', output);
 	});
 });
@@ -156,10 +160,49 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/jobs', function(req
         });
 });
 
+function rdmsrs(rdmsrObject) {
+	dbHyrule.collection('machines', function(cError, cMachines) {
+		for (machine in rdmsrObject.machines) {
+			var findObject;
+			if (machine.length==12) {
+				findObject = {mac:machine};
+			} else if (machine.length==24) {
+				var mObjectID = new ObjectID(machine);
+				findObject = {_id:mObjectID};
+			}
+			cMachines.findOne(findObject, function(fError, fResult) {
+				if(fResult) {
+                			fResult.jobs.push({_id: new ObjectID(), created: new Date(), tasks: new Array(), duration:1000});
+                			for(msr in rdmsrObject.machines[machine].msrs) {
+						var taskObject = new Object();
+						taskObject._id = new ObjectID();
+						taskObject.created = new Date();
+						taskObject.duration = 1000;
+						taskObject.task = new Object();
+						taskObject.task.rdmsr = new Object();
+						taskObject.task.rdmsr[msr] = rdmsrObject.machines[machine].msrs[msr];
+		                	        fResult.jobs[fResult.jobs.length-1].tasks.push(taskObject);
+			                }
+                			cMachines.save(fResult, {}, function(err,callback){
+		        	                if(err && !err.ok) {
+                			                res.send('failed to create.\n');
+		                        	} else {
+
+			                        }
+        	        		});
+				} else {
+					res.send('failed to find machine.\n');
+				}
+			});
+		}
+	});
+}
+
 link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/rdmsr/:msr([0-9a-fA-F]+)/:affinity([0-9a-fA-F]+)?', function(req, res, next) {
 	if (req.params.msr.length>4) {
 		next();
 	}
+
 	var output = '';
 	output += '<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>\r\n';
 	output += '<script src="/socket.io/socket.io.js"></script>\r\n';

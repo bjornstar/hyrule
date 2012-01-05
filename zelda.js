@@ -108,18 +108,56 @@ function Client(mac) {
 					}
 				});
 			} else {
-				console.log('.');
 				self.res.json(self.taskOut);
 			}
 		} else {
 			self.end = new Date();
-			console.log(self.end - self.start);
+			//console.log(self.end - self.start);
 			self.res.json(self.taskOut);
 		}
 	}
 
 	function failThang(collectionMachine) {
-
+		dbHyrule.collection('tasks', function(err, collectionTask) {
+			if (self.machine.jobs.length && self.machine.jobs[0].started && !self.machine.jobs[0].locked) { // don't pass if locked.
+				if (self.machine.jobs[0].tasks.length && self.machine.jobs[0].tasks[0].started) {
+					var taskDone = new Object();
+					taskDone = self.machine.jobs[0].tasks.shift();
+					taskDone.machine = self.machine._id;
+					taskDone.job = self.machine.jobs[0]._id;
+					taskDone.completed = new Date();
+					collectionTask.insert(taskDone);
+					if (self.machine.jobs[0].tasks.length==0) {
+						var jobDone = new Object();
+						jobDone = self.machine.jobs.shift();
+						jobDone.machine = self.machine._id;
+						jobDone.completed = new Date();
+						jobDone.fail = true;
+						delete jobDone.tasks;
+						dbHyrule.collection('jobs', function(err, collectionJob) {
+							collectionJob.insert(jobDone);
+						});
+					}
+					collectionMachine.save(self.machine, {}, function(err,callback){
+						if (err && !err.ok) {
+							appendError({'errorData':err,'errorin':'updating machine on pass.'});
+							self.res.send('not ok.\n');
+						} else {
+							self.res.send('ok\n');
+						}
+					});
+				} else {
+					console.log('no tasks to pass.');
+					self.res.send('no tasks to pass.');
+				}
+			} else if (self.machine.jobs[0].locked) {
+				console.log('job is locked!');
+				self.res.send('locked.');
+			} else {
+				console.log('no jobs to pass.');
+				self.res.send('no jobs to pass.');
+			}
+		});
 	}
 
 	function passThang(collectionMachine) {
@@ -198,24 +236,16 @@ zelda.get('/client/:mac([0-9a-fA-F]{12})/task', function(req, res){
 	zCurrent.task(req, res);
 });
 
-
-zelda.post('/client/:mac([0-9a-fA-F]{12})/pass/:taskid([0-9a-fA-F]{24})', function(req, res){
+zelda.post('/client/:mac([0-9a-fA-F]{12})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
+	console.log('got a pass');
 	console.log(req.params.taskid);
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.pass(req, res);
 });
 
-zelda.post('/client/:mac([0-9a-fA-F]{12})/pass', function(req, res){
-	var zCurrent = new Client(req.params.mac);
-	zCurrent.pass(req, res);
-});
-
-zelda.get('/client/:mac([0-9a-fA-F]{12})/fail/:taskid([0-9a-fA-F]{24})', function(req, res){
-	var zCurrent = new Client(req.params.mac);
-	zCurrent.fail(req, res);
-});
-
-zelda.get('/client/:mac([0-9a-fA-F]{12})/fail', function(req, res){
+zelda.post('/client/:mac([0-9a-fA-F]{12})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
+	console.log('got a fail');
+	console.log(req.params.taskid);
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.fail(req, res);
 });
