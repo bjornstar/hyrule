@@ -18,7 +18,7 @@ dbHyrule.open(function() {
 
 console.log('Hello, my name is ' + appName + '!');
 
-var defaultPause = 50;
+var defaultPause = 20;
 
 var zelda = express.createServer();
 
@@ -43,12 +43,11 @@ function Client(mac) {
 			self.appendError({'errordata':errCollection,'errorin':'hyrule.collection(\'machines\')'});
 			self.res.json(self.taskOut);
 		} else {
-
 			collectionMachine.findAndModify(
 			{'mac':self.mac},
 			[],
 			{'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}},
-			{'new':true, 'upsert':true},
+			{'new':true, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
 			function(famErr, famMachine) {
 				if (famErr && !famErr.ok) {
 					self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify'});
@@ -63,11 +62,7 @@ function Client(mac) {
 							if (!self.machine.jobs) {
 								self.machine.jobs = new Array();
 							}
-							collectionMachine.save(self.machine, {}, function(errSave){ // it's ok to use save here because it's a new machine.
-								if (errSave && !errSave.ok) {
-									appendError({'errordata':errSave,'errorin':'initial created and/or jobs'});
-								}
-							});
+							collectionMachine.update({'mac':self.mac},{'$set':{'created':new Date(),'jobs':new Array()}},function() {});
 						}
 
 // Every request from the client, we need to do up to here. ^^^^^^^^^^^^^
@@ -79,6 +74,7 @@ function Client(mac) {
 					} else {
 						self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify:no results'});
 						self.res.json(self.taskOut);
+						delete inProgress[self.req.params.mac];
 					}
 				}
 			});
@@ -86,9 +82,14 @@ function Client(mac) {
 	}
 
 	function taskThang(cMachine) {
-		var tStart = self.taskOut;
-		var jCount = 0;
-		var tCount = 0;
+		var tStart = self.taskOut;// Our default task.
+		var jCount = 0;// This is kind of like our process count.
+		var tCount = 0;// This is kind of like our thread count.
+
+		var updateObject = new Object();
+		updateObject['$set'] = new Object();
+
+		var uO = updateObject['$set'];// Makes referring to updateObject easier.
 
 		for (job in self.machine.jobs) {
 			if (self.machine.jobs[job].locked) {
@@ -96,7 +97,7 @@ function Client(mac) {
 			}
 
 			if (self.machine.jobs[job].started) {
-				jCount +=1;
+				jCount +=1; 
 			}
 
 			if (jCount>=2) {
@@ -111,12 +112,15 @@ function Client(mac) {
 				jStart.started = jStarted;
 				jStart.timeout = jTimeout;
 
+				uO['jobs.'+job+'.started'] = jStarted;
+				uO['jobs.'+job+'.timeout'] = jTimeout;
+
 				jCount +=1
 			}
 
 			for (task in jStart.tasks) {
 				if (jStart.tasks[task].started) {
-					tCount +=1
+					tCount +=1 
 					break;
 				}
 
@@ -131,13 +135,15 @@ function Client(mac) {
 				tStart.started = tStarted;
 				tStart.timeout = tTimeout;
 
+				uO['jobs.'+job+'.tasks.'+task+'.started'] = tStarted;
+				uO['jobs.'+job+'.tasks.'+task+'.timeout'] = tTimeout;
+
 				tCount +=1
 			}
 		}
 
 		if (tStart != self.taskOut) {
-			cMachine.save(self.machine, {}, function(errSave) { // this is dangerous, we could lose data. Need to change to update.
-				var now = new Date();
+			cMachine.update({'mac':self.mac},updateObject,function(errSave) { // Yay for atomic operations.
 				if (errSave) {
 					console.log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
 				} else {
@@ -146,15 +152,22 @@ function Client(mac) {
 			});
 		}
 
-		self.res.json(tStart);
+		self.res.json(tStart); // We're not waiting for the save event to finish.
+		delete inProgress[self.req.params.mac];
 
 		self.end = new Date();
 //		console.log(self.end - self.start);
+		
 	}
 
 	function passThang(collectionMachine) {
 		var jPass;
 		var tRemove = -1;
+
+		var updateObject = new Object();
+		updateObject['$pull'] = new Object();
+
+		var uO = updateObject['$pull'];
 
 		for (job in self.machine.jobs) {
 			if (!self.machine.jobs[job].started) { // Dont' bother looking if it hasn't started.
@@ -188,6 +201,9 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 					collectionTask.insert(tLog);
 				});
 
+				uO['jobs.'+job+'.tasks'] = new Object();
+				uO['jobs.'+job+'.tasks']._id = new ObjectID(tLog._id);
+
 				tRemove = task;
 			}
 		}
@@ -206,14 +222,18 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 			dbHyrule.collection('jobs', function(err, collectionJob) {
 				collectionJob.insert(jLog);
 			});
+
+			uO['jobs'] = new Object();
+			uO['jobs']._id = new ObjectID(jLog._id);
 		}
 
-		collectionMachine.save(self.machine, {}, function(err,callback){ // This is dangerous, need to change this to update.
+		collectionMachine.update({mac:self.mac}, updateObject, function(err,callback){ // it's atomic!
 			if (err && !err.ok) {
 				appendError({'errorData':err,'errorin':'updating machine on pass.'});
-				self.res.send('not ok.\n');
+				self.res.send('not ok.');
 			} else {
-				self.res.send('ok\n');
+				self.res.send('ok'); // Here we wait until save completes before responding.
+				delete inProgress[self.req.params.mac];
 			}
 		});
 	}
@@ -297,19 +317,51 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 	return this;
 }
 
+var inProgress = new Object();
+var overRun = 0;
 
+var lastOverRun = new Date();
 
-zelda.get('/client/:mac([0-9a-fA-F]{12})/task', function(req, res){
+zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12})/task', function(req, res){
+	var reqTime = new Date();
+	if (inProgress[req.params.mac]) {
+		res.json({task:{pause:defaultPause}});
+		overRun++;
+		lastOverRun = new Date();
+		console.log(overRun);
+		console.log(inProgress);
+		return;
+	}
+	if (overRun >= 50) {
+		defaultPause +=5;
+		overRun = 0;
+		lastOverRun = new Date();
+	}
+	if (reqTime.getTime() -  lastOverRun.getTime()>100) {
+		lastOverRun = new Date();
+		defaultPause--;
+	}
+	inProgress[req.params.mac] = new Object();
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.task(req, res);
 });
 
 zelda.post('/client/:mac([0-9a-fA-F]{12})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
+	if (inProgress[req.params.mac]) {
+		res.json({task:{pause:defaultPause}});
+		overRun++;
+		return;
+	}
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.pass(req, res);
 });
 
 zelda.post('/client/:mac([0-9a-fA-F]{12})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
+	if (inProgress[req.params.mac]) {
+		res.json({task:{pause:defaultPause}});
+		overRun++;
+		return;
+	}
 	console.log('got a fail');
 	console.log(req.params.taskid);
 	var zCurrent = new Client(req.params.mac);

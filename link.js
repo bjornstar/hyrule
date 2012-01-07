@@ -29,6 +29,7 @@ socketCollection.frequency = 100;
 io.sockets.on('connection', function (socket) {
 	socketCollection.size += 1;
 	socket.on('disconnect', function() {
+		console.log(socketCollection);
 		if (socketCollection[socket.id]) {
 			clearInterval(socketCollection[socket.id].socketInterval);
 		}
@@ -41,7 +42,7 @@ io.sockets.on('connection', function (socket) {
 		socketCollection[socket.id].socketInterval = setInterval( function() {
 			if (socketCollection[socket.id]) {
 				dbHyrule.collection('machines', function(errCollection, collectionMachine) {
-        			        collectionMachine.find().sort({mac:1}).toArray( function(errFind, rMachines) {
+       				        collectionMachine.find({},{timesseen:1}).sort({mac:1}).toArray( function(errFind, rMachines) {
 						var output;
 						var totalTimesseen = 0;
 						for (rMachine in rMachines) {
@@ -58,20 +59,30 @@ io.sockets.on('connection', function (socket) {
 						socketCollection[socket.id].prevTimesseen = totalTimesseen;
 					});
 				});
-			} else {
-				console.log('socket is gone');
 			}
 		}, socketCollection.frequency);
 	});
 	socket.on('rdmsrstart', function (data) {
-		socketCollection[socket.id] = new Object();
+		socketCollection[socket.id] = {'prevData':0};
 		socketCollection[socket.id].socketInterval = setInterval( function() {
-			//console.log('I\'m Polling!');
-		});
+			if (socketCollection[socket.id]) {
+				dbHyrule.collection('tasks', function(errCollection, collectionTasks) {
+					collectionTasks.find({'task.rdmsr':{'$ne':null}}).sort({completed:-1}).limit(3).toArray( function(errFind, rTasks) { // index on completed.
+						if (socketCollection[socket.id]) {
+							var output = '';
+							for (task in rTasks) {
+								output += JSON.stringify(rTasks[task]) + ' ';
+							}
+							if (socketCollection[socket.id].prevData!=output) {
+								socket.emit('rdmsr', output);
+							}
+							socketCollection[socket.id].prevData = output;
+						}
+					});
+				});
+			}
+		}, socketCollection.frequency);
 		createRdmsrPollingJob(data);
-		var output = '';
-		output += JSON.stringify(data) ;
-		socket.emit('rdmsr', output);
 	});
 });
 
@@ -163,6 +174,10 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/jobs', function(req
         });
 });
 
+function removeRdmsrPollingJob(rdmsrObject) {
+
+}
+
 function createRdmsrPollingJob(rdmsrObject) {
 	dbHyrule.collection('machines', function(cError, cMachines) {
 		for (machine in rdmsrObject.machines) {
@@ -218,13 +233,20 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/rdmsr/:msr([0-9a-fA
 	output += '<script type="text/javascript">\r\n';
 	output += 'var socket = io.connect();\r\n';
 	output += 'var hope;\r\n';
+
+	var mTest = new Array();
+	mTest = [req.params.machine];
+
 	var MSRs = new Object();
 	MSRs.machines = new Object();
-	MSRs.machines[req.params.machine] = new Object();
-	MSRs.machines[req.params.machine].msrs = new Object();
-	MSRs.machines[req.params.machine].msrs[req.params.msr] = req.params.affinity;
-	for (var jj=0;jj<=100;jj++) {
-		MSRs.machines[req.params.machine].msrs[jj] = jj;
+	for (m in mTest) {
+		mT = mTest[m];
+		MSRs.machines[mT] = new Object();
+		MSRs.machines[mT].msrs = new Object();
+		MSRs.machines[mT].msrs[req.params.msr] = req.params.affinity;
+		for (var jj=0;jj<=100;jj++) {
+			MSRs.machines[mT].msrs[jj] = jj;
+		}
 	}
 	output += 'socket.emit(\'rdmsrstart\', ' + JSON.stringify(MSRs) + ');\r\n';
 	output += 'socket.on(\'rdmsr\', function (data) {\r\n';
