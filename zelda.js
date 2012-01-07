@@ -18,7 +18,7 @@ dbHyrule.open(function() {
 
 console.log('Hello, my name is ' + appName + '!');
 
-var defaultPause = 20;
+var defaultPause = 50;
 
 var zelda = express.createServer();
 
@@ -318,30 +318,31 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 }
 
 var inProgress = new Object();
-var overRun = 0;
-
 var lastOverRun = new Date();
 
 zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12})/task', function(req, res){
 	var reqTime = new Date();
 	if (inProgress[req.params.mac]) {
+		inProgress[req.params.mac]++;
+		if (inProgress[req.params.mac] >= 3) {
+			lastOverRun = new Date();
+		}
+		if (inProgress[req.params.mac] >= 10) {
+			console.log('THE BRAKES!');
+			console.log(inProgress);
+			defaultPause +=5;
+			inProgress[req.params.mac] = 1;
+		}
 		res.json({task:{pause:defaultPause}});
-		overRun++;
-		lastOverRun = new Date();
-		console.log(overRun);
-		console.log(inProgress);
 		return;
 	}
-	if (overRun >= 50) {
-		defaultPause +=5;
-		overRun = 0;
+
+	if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause >= 10) {
 		lastOverRun = new Date();
-	}
-	if (reqTime.getTime() -  lastOverRun.getTime()>100) {
-		lastOverRun = new Date();
-		defaultPause--;
+		defaultPause-=5;
 	}
 	inProgress[req.params.mac] = new Object();
+	inProgress[req.params.mac] = 1;
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.task(req, res);
 });
