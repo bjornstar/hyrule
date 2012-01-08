@@ -9,7 +9,7 @@ console.log('Welcome to Hyrule.');
 var moblin = new Object();
 
 if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
-	moblin.hostname = os.hostname;
+	moblin.hostname = os.hostname();
 } else {
 	moblin.hostname = 'deadbeefdead';
 }
