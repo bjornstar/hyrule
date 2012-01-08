@@ -7,15 +7,24 @@ var appName = 'Moblin';
 console.log('Welcome to Hyrule.');
 
 var moblin = new Object();
-moblin.hostname = os.hostname();
+
+if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
+	moblin.hostname = os.hostname;
+} else {
+	moblin.hostname = 'deadbeefdead';
+}
 
 console.log('I dub thee moblin_'+moblin.hostname);
 
-var options = {
+var horcruxAgent = new http.Agent();
+horcruxAgent.maxSockets = 1;
+
+var horcruxTask = {
+  agent: horcruxAgent,
   host: 'horcrux',
-  port: 3000,
+  method: 'GET',
   path: '/moblin/'+moblin.hostname+'/task',
-  method: 'GET'
+  port: 3000
 };
 
 var moblinHeartRate = 1;
@@ -29,7 +38,7 @@ function moblinHeartBeat () {
   var heartTime = new Date();
 //  console.log(beatCount + ' ' + (heartTime.getTime()-start));
 
-  var taskRequest = http.request(options, function(res) {
+  var taskRequest = http.request(horcruxTask, function(res) {
     res.setEncoding('utf8');
     res.on('data', function responseData(data) {
       digestTask(data);

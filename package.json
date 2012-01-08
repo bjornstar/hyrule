@@ -1,14 +1,14 @@
 {
   "name": "hyrule",
   "description": "A magical wonderland where hardware gets tested.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "dependencies": {
     "mongodb": ">=0.9.7",
-    "express": ">=2.5.1",
+    "express": ">=2.5.5",
     "socket.io": ">=0.8.7"
   },
   "engines": {
-    "node": ">=0.6.5"
+    "node": ">=0.6.7"
   },
   "scripts": {
     "start": "zelda.js"
