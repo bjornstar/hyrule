@@ -28,6 +28,14 @@ function Client(mac) {
 	var start = new Date();
 
 	this.mac = mac.toLowerCase();
+	var findObject = new Object();
+
+	if (self.mac.length==12) {
+		self.findObject = {mac:self.mac};
+	} else if (self.mac.length==24) {
+		self.findObject = {_id:new ObjectID(self.mac)};
+	}
+
 	this.taskOut = {task:{pause:defaultPause}}; //,_id:new ObjectID(),created:new Date()}; // This is the default task.
 
 	this.appendError = function(errorObject) {
@@ -44,7 +52,7 @@ function Client(mac) {
 			self.res.json(self.taskOut);
 		} else {
 			collectionMachine.findAndModify(
-			{'mac':self.mac},
+			self.findObject,
 			[],
 			{'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}},
 			{'new':true, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
@@ -62,7 +70,7 @@ function Client(mac) {
 							if (!self.machine.jobs) {
 								self.machine.jobs = new Array();
 							}
-							collectionMachine.update({'mac':self.mac},{'$set':{'created':new Date(),'jobs':new Array()}},function() {});
+							collectionMachine.update(self.findObject,{'$set':{'created':new Date(),'jobs':new Array()}},function() {});
 						}
 
 // Every request from the client, we need to do up to here. ^^^^^^^^^^^^^
@@ -143,7 +151,7 @@ function Client(mac) {
 		}
 
 		if (tStart != self.taskOut) {
-			cMachine.update({'mac':self.mac},updateObject,function(errSave) { // Yay for atomic operations.
+			cMachine.update(self.findObject,updateObject,function(errSave) { // Yay for atomic operations.
 				if (errSave) {
 					console.log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
 				} else {
@@ -227,7 +235,7 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 			uO['jobs']._id = new ObjectID(jLog._id);
 		}
 
-		collectionMachine.update({mac:self.mac}, updateObject, function(err,callback){ // it's atomic!
+		collectionMachine.update(self.findObject, updateObject, function(err,callback){ // it's atomic!
 			if (err && !err.ok) {
 				appendError({'errorData':err,'errorin':'updating machine on pass.'});
 				self.res.send('not ok.');
@@ -320,7 +328,7 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 var inProgress = new Object();
 var lastOverRun = new Date();
 
-zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12})/task', function(req, res){
+zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', function(req, res){
 	var reqTime = new Date();
 	if (inProgress[req.params.mac]) {
 		inProgress[req.params.mac]++;
@@ -347,7 +355,7 @@ zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12})/task', function(req, re
 	zCurrent.task(req, res);
 });
 
-zelda.post('/client/:mac([0-9a-fA-F]{12})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
+zelda.post('/client/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
 	if (inProgress[req.params.mac]) {
 		res.json({task:{pause:defaultPause}});
 		overRun++;
@@ -357,7 +365,7 @@ zelda.post('/client/:mac([0-9a-fA-F]{12})/pass/:taskid([0-9a-fA-F]{24})?', funct
 	zCurrent.pass(req, res);
 });
 
-zelda.post('/client/:mac([0-9a-fA-F]{12})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
+zelda.post('/client/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
 	if (inProgress[req.params.mac]) {
 		res.json({task:{pause:defaultPause}});
 		overRun++;

@@ -1,20 +1,46 @@
 var spawn   = require('child_process').spawn;
 var http    = require('http');
 var os      = require('os');
-var util    = require('util');
+var crypto  = require('crypto');
 
 var appName = 'Moblin';
 console.log('Welcome to Hyrule.');
 
 var moblin = new Object();
 
+var intInc = 0;
+
 if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
-	moblin.hostname = os.hostname();
+	moblin.name = os.hostname();
 } else {
-	moblin.hostname = 'deadbeefdead';
+	moblin.name = generateObjectId();
 }
 
-console.log('I dub thee moblin_'+moblin.hostname);
+function generateObjectId() {
+  var nameNew = '';
+  var timePortion = parseInt(new Date().getTime().toString().substr(0,10)).toString(16);
+  nameNew += timePortion;
+
+  var hostPortion = crypto.createHash('md5').update(os.hostname()).digest('hex').substr(0,6);
+  nameNew += hostPortion;
+
+  var processPortion = process.pid.toString(16).substr(0,4);
+  while (processPortion.length<4) {
+    processPortion = '0'+processPortion;
+  }
+  nameNew += processPortion;
+
+  intInc++;
+  var incPortion = parseInt(intInc).toString(16).substr(0,6);
+  while (incPortion.length<6) {
+    incPortion = '0'+incPortion;
+  }
+  nameNew += incPortion;
+
+  return nameNew;
+}
+
+console.log('I dub thee moblin_'+moblin.name);
 
 var horcruxAgent = new http.Agent();
 horcruxAgent.maxSockets = 1;
@@ -23,7 +49,7 @@ var horcruxTask = {
   agent: horcruxAgent,
   host: 'horcrux',
   method: 'GET',
-  path: '/moblin/'+moblin.hostname+'/task',
+  path: '/moblin/'+moblin.name+'/task',
   port: 3000
 };
 

@@ -103,7 +103,10 @@ link.get('/machines', function(req, res){
 			output += '<div id="banana"> </div>\r\n';
 			for (result in results) {
 				var mResult = results[result];
-				output += '<a href="/machine/' + mResult.mac + '">' + mResult.mac + '</a>';
+				output += '<a href="/machine/' + mResult._id + '">' + mResult._id + '</a>';
+				if (mResult.mac) {
+					output += ' ' + mResult.mac;
+				}
 				output += ' ' + mResult.timesseen;
 				output += ' ' + mResult.lastseen;
 				output += ' ' + mResult.jobs.length;
