@@ -4,7 +4,7 @@ var os      = require('os');
 var crypto  = require('crypto');
 
 var appName = 'Moblin';
-console.log('Welcome to Hyrule.');
+console.log(new Date()+': Welcome to Hyrule.');
 
 var moblin = new Object();
 
@@ -40,7 +40,7 @@ function generateObjectId() {
   return nameNew;
 }
 
-console.log('I dub thee moblin_'+moblin.name);
+console.log(new Date()+': I dub thee moblin_'+moblin.name+'.');
 
 var horcruxAgent = new http.Agent();
 horcruxAgent.maxSockets = 1;
@@ -58,6 +58,8 @@ var moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblinHeartRate);
 
 var start = new Date();
 var beatCount = 0;
+
+moblin.umbilicalCord = false;
 
 function moblinHeartBeat () {
   beatCount++;
@@ -77,10 +79,12 @@ function moblinHeartBeat () {
   taskRequest.on('error', function taskRequestError(socketException) {
     switch(socketException.code) {
       case 'ECONNRESET':
-        console.log('Horcrux just crashed');
+        console.log(new Date()+': Horcrux just crashed.');
+	moblin.umbilicalCord = false;
         break;
       case 'ECONNREFUSED':
-        console.log('Horcrux isn\'t up');
+        console.log(new Date()+': Horcrux isn\'t up.');
+	moblin.umbilicalCord = false;
         break;
       default:
         console.log(socketException);
@@ -100,13 +104,18 @@ function digestTask(chunk) {
   var tastyBits = JSON.parse(chunk);
   var task = tastyBits.task;
 
+  if (!moblin.umbilicalCord) {
+    console.log(new Date()+': Connection to horcrux established.');
+    moblin.umbilicalCord = true;
+  }
+
   if(task.pause && moblinHeartRate != task.pause) {
-    console.log('Changing heart rate from '+moblinHeartRate+' to '+task.pause+'.');
+    console.log(new Date()+': Changing heart rate from '+moblinHeartRate+' to '+task.pause+'.');
     moblinHeartRate = task.pause;
     clearInterval(moblinHeartBeatInterval);
     moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblinHeartRate);
   } else if (task.pause) {
-    return
+    return;
   }
   
   if(task.rdmsr!=null) {

@@ -18,7 +18,7 @@ dbHyrule.open(function() {
 
 console.log('Hello, my name is ' + appName + '!');
 
-var defaultPause = 50;
+var defaultPause = 10;
 
 var zelda = express.createServer();
 
@@ -165,7 +165,6 @@ function Client(mac) {
 
 		self.end = new Date();
 //		console.log(self.end - self.start);
-		
 	}
 
 	function passThang(collectionMachine) {
@@ -345,7 +344,7 @@ zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', 
 		return;
 	}
 
-	if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause >= 10) {
+	if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 50) {
 		lastOverRun = new Date();
 		defaultPause-=5;
 	}

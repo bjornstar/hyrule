@@ -42,7 +42,7 @@ io.sockets.on('connection', function (socket) {
 		socketCollection[socket.id].socketInterval = setInterval( function() {
 			if (socketCollection[socket.id]) {
 				dbHyrule.collection('machines', function(errCollection, collectionMachine) {
-       				        collectionMachine.find({},{timesseen:1}).sort({mac:1}).toArray( function(errFind, rMachines) {
+       				        collectionMachine.find({},{timesseen:1}).sort({_id:1}).toArray( function(errFind, rMachines) {
 						var output;
 						var totalTimesseen = 0;
 						for (rMachine in rMachines) {
@@ -88,7 +88,7 @@ io.sockets.on('connection', function (socket) {
 
 link.get('/machines', function(req, res){
 	dbHyrule.collection('machines', function(errCollection, collectionMachine, callback) {
-		collectionMachine.find().sort({lastseen:-1}).toArray( function(errFind, results) {
+		collectionMachine.find().sort({_id:-1}).toArray( function(errFind, results) {
 			var output = '';
 			output += '<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>\r\n';
 			output += '<script src="/socket.io/socket.io.js"></script>\r\n';
@@ -386,6 +386,7 @@ link.get('*', function(req, res){
 	output += '<a href="/machines">/machines</a><br />';
 	output += '<a href="/tasks">/tasks</a><br />';
 	output += '<a href="/jobs">/jobs</a>';
+	output += '<a href="/machine/4f0a3c39856936725a000001/rdmsr/198/ff">rdmsr</a>';
 	res.send(output);
 });
 
