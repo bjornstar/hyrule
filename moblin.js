@@ -2,11 +2,24 @@ var spawn   = require('child_process').spawn;
 var http    = require('http');
 var os      = require('os');
 var crypto  = require('crypto');
+var fs      = require('fs');
+var util    = require('util');
 
-var appName = 'Moblin';
-console.log(new Date()+': Welcome to Hyrule.');
+var appName = 'moblin';
+var appStart = new Date();
+
+var zeldaIP = '10.30.0.73';
+
+console.log('['+new Date().toISOString()+'] Welcome to Hyrule.');
 
 var moblin = new Object();
+
+fs.readFile('package.json', 'utf8', function(err, data) {
+  if (err) throw err;
+  var jsonPackage = JSON.parse(data);
+  moblin.version = jsonPackage.version;
+  console.log('['+new Date().toISOString()+'] You are '+appName+' in Hyrule v'+moblin.version);
+});
 
 var intInc = 0;
 
@@ -40,80 +53,138 @@ function generateObjectId() {
   return nameNew;
 }
 
-console.log(new Date()+': I dub thee moblin_'+moblin.name+'.');
+console.log('['+new Date().toISOString()+'] I dub thee moblin_'+moblin.name+'.');
 
-var horcruxAgent = new http.Agent();
-horcruxAgent.maxSockets = 1;
+var zeldaAgent = new http.Agent();
+zeldaAgent.maxSockets = 1;
 
-var horcruxTask = {
-  agent: horcruxAgent,
-  host: 'horcrux',
+var zeldaAgentVersion = new http.Agent();
+zeldaAgentVersion.maxSockets = 5;
+
+var zeldaTask = {
+  agent: zeldaAgent,
+  host: zeldaIP,
   method: 'GET',
   path: '/moblin/'+moblin.name+'/task',
   port: 3000
 };
 
-var moblinHeartRate = 1;
-var moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblinHeartRate);
+var zeldaVersion = {
+  agent: zeldaAgentVersion,
+  host: zeldaIP,
+  method: 'GET',
+  path: '/version',
+  port: 3000
+};
 
-var start = new Date();
-var beatCount = 0;
-
+moblin.heartRate = 50;
+moblin.EKGRate = 5000;
 moblin.umbilicalCord = false;
+moblin.beatCount = 0;
+moblin.eatCount = 0;
+moblin.prevBeatCount = 0;
+moblin.prevEatCount = 0;
+moblin.checkCount = 0;
+moblin.prevCheckCount = 0;
 
-function moblinHeartBeat () {
-  beatCount++;
-  var heartTime = new Date();
-//  console.log(beatCount + ' ' + (heartTime.getTime()-start));
+var moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
+var moblinEKGInterval = setInterval(moblinEKG, moblin.EKGRate);
 
-  var taskRequest = http.request(horcruxTask, function(res) {
+function moblinEKG () {
+  if (Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))!=moblin.heartRate||Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount))!=moblin.heartRate) {
+    console.log('['+new Date().toISOString()+'] Irregular Heartbeat! '+Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))+' '+Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount)));
+  }
+  moblin.prevBeatCount = moblin.beatCount;
+  moblin.prevEatCount = moblin.eatCount;
+}
+
+function moblinVersionCheck () {
+  moblin.checkCount++;
+
+  var versionRequest = http.request(zeldaVersion, function(res) {
     res.setEncoding('utf8');
-    res.on('data', function responseData(data) {
-      digestTask(data);
+    res.on('data', function resVersionData(data) {
+      handleVersionCheck(data);
     });
-    res.on('close', function responseClose(error) {
+    res.on('close', function resVersionClose(error) {
       console.log(error);
     });
   });
 
-  taskRequest.on('error', function taskRequestError(socketException) {
+  versionRequest.on('error', function versionRequestError(socketException) {
+    handleRequestError(socketException);
+    if (!moblin.timeoutVersionCheck){
+      moblin.timeoutVersionCheck = setTimeout(moblinVersionCheck, 1000);
+    }
+  });
+
+  versionRequest.end();
+}
+
+moblin.timeoutVersionCheck = setTimeout(moblinVersionCheck, 1000);
+
+function handleVersionCheck(data) {
+  if (!moblin.umbilicalCord) {
+    console.log('['+new Date().toISOString()+'] Found Zelda.');
+    moblin.umbilicalCord = true;
+  }
+  console.log('['+new Date().toISOString()+'] Zelda says she is in Hyrule v'+data);
+  moblin.prevCheckCount = moblin.checkCount;
+}
+
+function handleRequestError(socketException) {
     switch(socketException.code) {
       case 'ECONNRESET':
-        console.log(new Date()+': Horcrux just crashed.');
+        console.log('['+new Date().toISOString()+'] Zelda just died.');
 	moblin.umbilicalCord = false;
         break;
       case 'ECONNREFUSED':
-        console.log(new Date()+': Horcrux isn\'t up.');
+        console.log('['+new Date().toISOString()+'] Can\'t find Zelda.');
 	moblin.umbilicalCord = false;
         break;
       default:
         console.log(socketException);
     }
+}
+
+
+function moblinHeartBeat () {
+  moblin.beatCount++;
+
+  var taskRequest = http.request(zeldaTask, function(res) {
+    res.setEncoding('utf8');
+    res.on('data', function resTaskData(data) {
+      digestTask(data);
+    });
+    res.on('close', function resTaskClose(error) {
+      console.log(error);
+    });
+  });
+
+  taskRequest.on('error', function taskRequestError(socketException) {
+    handleRequestError(socketException);
   });
 
   taskRequest.end();
 }
 
-var eaten = 0;
 
 function digestTask(chunk) {
-  eaten++;
-  var eatTime = new Date();
-//  console.log('                 '+eaten+' '+(eatTime.getTime()-start));
+  moblin.eatCount++;
 
   var tastyBits = JSON.parse(chunk);
   var task = tastyBits.task;
 
   if (!moblin.umbilicalCord) {
-    console.log(new Date()+': Connection to horcrux established.');
+    console.log('['+new Date().toISOString()+'] Found Zelda.');
     moblin.umbilicalCord = true;
   }
 
-  if(task.pause && moblinHeartRate != task.pause) {
-    console.log(new Date()+': Changing heart rate from '+moblinHeartRate+' to '+task.pause+'.');
-    moblinHeartRate = task.pause;
+  if(task.pause && moblin.heartRate != task.pause) {
+    console.log('['+new Date().toISOString()+'] Changing heart rate from '+moblin.heartRate+' to '+task.pause+'.');
+    moblin.heartRate = task.pause;
     clearInterval(moblinHeartBeatInterval);
-    moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblinHeartRate);
+    moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
   } else if (task.pause) {
     return;
   }

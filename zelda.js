@@ -1,5 +1,6 @@
 var	mongodb		= require('mongodb');
 var	express		= require('express');
+var	fs		= require('fs');
 
 var ObjectID = mongodb.ObjectID;
 
@@ -354,7 +355,7 @@ zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', 
 	zCurrent.task(req, res);
 });
 
-zelda.post('/client/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
+zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
 	if (inProgress[req.params.mac]) {
 		res.json({task:{pause:defaultPause}});
 		overRun++;
@@ -364,7 +365,7 @@ zelda.post('/client/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-
 	zCurrent.pass(req, res);
 });
 
-zelda.post('/client/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
+zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
 	if (inProgress[req.params.mac]) {
 		res.json({task:{pause:defaultPause}});
 		overRun++;
@@ -374,6 +375,15 @@ zelda.post('/client/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-
 	console.log(req.params.taskid);
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.fail(req, res);
+});
+
+zelda.get('/version', function(req,res) {
+	fs.readFile('package.json', 'utf8', function(err,data) {
+		if (err) throw err;
+		var jsonPackage = JSON.parse(data);
+		zelda.version = jsonPackage.version;
+		res.send(zelda.version);
+	});
 });
 
 zelda.listen(3000);

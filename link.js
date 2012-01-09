@@ -385,9 +385,18 @@ link.get('*', function(req, res){
 	output += '<a href="/inprogress">/inprogress</a><br />';
 	output += '<a href="/machines">/machines</a><br />';
 	output += '<a href="/tasks">/tasks</a><br />';
-	output += '<a href="/jobs">/jobs</a>';
+	output += '<a href="/jobs">/jobs</a><br />';
 	output += '<a href="/machine/4f0a3c39856936725a000001/rdmsr/198/ff">rdmsr</a>';
 	res.send(output);
+});
+
+link.get('/version', function(req,res) {
+        fs.readFile('package.json', 'utf8', function(err,data) {
+                if (err) throw err;
+                var jsonPackage = JSON.parse(data);
+                link.version = jsonPackage.version;
+                res.send(link.version);
+        });
 });
 
 link.listen(3001);
