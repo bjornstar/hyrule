@@ -64,7 +64,7 @@ function generateObjectId() {
 console.log('['+new Date().toISOString()+'] I dub thee moblin_'+moblin.name+'.');
 
 var zeldaAgent = new http.Agent();
-zeldaAgent.maxSockets = 1;
+zeldaAgent.maxSockets = 5; // reducing sockets will keep moblin from receiving data fast enough.
 
 var zeldaAgentVersion = new http.Agent();
 zeldaAgentVersion.maxSockets = 5;
@@ -96,6 +96,7 @@ var zeldaDownload = {
 
 moblin.heartRate = 50;
 moblin.EKGRate = 5000;
+moblin.versionCheckRate = 5000;
 moblin.umbilicalCord = false;
 moblin.beatCount = 0;
 moblin.eatCount = 0;
@@ -107,6 +108,7 @@ moblin.dlCount = 0;
 moblin.prevDlCount = 0;
 moblin.heartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
 moblin.EKGInterval = setInterval(moblinEKG, moblin.EKGRate);
+moblin.versionCheckInterval = setInterval(moblinVersionCheck, moblin.versionCheckRate);
 
 function moblinEKG () {
   if (Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))!=moblin.heartRate||Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount))!=moblin.heartRate) {
@@ -119,13 +121,22 @@ function moblinEKG () {
 function moblinDownload() {
   moblin.dlCount++;
 
+  if (moblin.dlCount >=50) {
+    clearTimeout(moblin.timeoutDownload);
+  }
+
   var downloadRequest = http.request(zeldaDownload, function(res) {
     res.setEncoding('utf8');
-    res.on('data', function resDownloadData(data) {
-      handleDownload(data);
+    var fNewMoblin = fs.createWriteStream('newmoblin.js');
+    res.on('data', function resDownloadData(chunk) {
+      fNewMoblin.write(chunk);
     });
     res.on('close', function resDownloadClose(error) {
       console.log(error);
+    });
+    res.on('end', function resDownloadEnd() {
+      fNewMoblin.end();
+      handleDownloadFinished();
     });
   });
 
@@ -139,25 +150,45 @@ function moblinDownload() {
   downloadRequest.end();
 }
 
-function handleDownload(data) {
-  fs.writeFile('moblin.js', data, function(err) {
+function handleDownloadFinished(data) {
+  fs.readFile('newmoblin.js', 'utf8', function verifyNewMoblin(err, data) {
     if (err) throw err;
-    console.log('['+new Date().toISOString()+'] Updated moblin.js, this process has stopped taking new tasks.');
-    clearInterval(moblin.EKGInterval);
-    clearInterval(moblin.heartBeatInterval);
-    if (os.platform()==='win32'){
-      var nodeStartHack = spawn('cmd',['/c','start','node','moblin.js']);
+    var newMoblinMD5 = crypto.createHash('md5').update(data).digest('hex');
+    if (newMoblinMD5 != hyrule.remoteMD5) {
+      console.log('['+new Date().toISOString()+'] Problem with download, try again.');
+      moblin.timeoutDownload = setTimeout(moblinDownload, 1000);
+      return;
     }
+
+    // Probably should do something to make sure we don't fork bomb.
+    // Also make sure new version can at least launch and handle tasks.
+
+    fs.rename('newmoblin.js', 'moblin.js', function renameNewMoblin(err) {
+      clearInterval(moblin.EKGInterval);
+      clearInterval(moblin.heartBeatInterval);
+      clearInterval(moblin.versionCheckInterval);
+
+      console.log('['+new Date().toISOString()+'] Updated moblin.js, this process has stopped taking new tasks.');
+
+      if (os.platform()==='win32'){
+        var nodeStartHack = spawn('cmd',['/c','start','node','moblin.js']);
+      }
+    });
   });
 }
 
 function moblinVersionCheck () {
   moblin.checkCount++;
 
+  var versionData='';
+
   var versionRequest = http.request(zeldaVersion, function(res) {
     res.setEncoding('utf8');
     res.on('data', function resVersionData(data) {
-      handleVersionCheck(data);
+      versionData += data;
+    });
+    res.on('end', function resVersionEnd() {
+      handleVersionCheck(versionData);
     });
     res.on('close', function resVersionClose(error) {
       console.log(error);
@@ -166,15 +197,10 @@ function moblinVersionCheck () {
 
   versionRequest.on('error', function versionRequestError(socketException) {
     handleRequestError(socketException);
-    if (!moblin.timeoutVersionCheck){
-      moblin.timeoutVersionCheck = setTimeout(moblinVersionCheck, 1000);
-    }
   });
 
   versionRequest.end();
 }
-
-moblin.timeoutVersionCheck = setTimeout(moblinVersionCheck, 1000);
 
 function handleVersionCheck(data) {
   if (!moblin.umbilicalCord) {
@@ -184,15 +210,19 @@ function handleVersionCheck(data) {
 
   var remoteHyrule = JSON.parse(data);
 
-  console.log('['+new Date().toISOString()+'] Zelda says she is in Hyrule v'+remoteHyrule.version);
-  console.log('['+new Date().toISOString()+'] Zelda\'s MD5 value is: '+remoteHyrule.moblin.md5);
-  console.log('['+new Date().toISOString()+'] Your MD5 value is:    '+moblin.md5);
+  hyrule.remoteMD5 = remoteHyrule.moblin.md5;
 
   moblin.prevCheckCount = moblin.checkCount;
 
   if (remoteHyrule.moblin.md5!=moblin.md5) {
+    console.log('['+new Date().toISOString()+'] Zelda says she is in Hyrule v'+remoteHyrule.version);
+    console.log('['+new Date().toISOString()+'] Zelda\'s MD5: '+remoteHyrule.moblin.md5);
+    console.log('['+new Date().toISOString()+'] Your MD5:    '+moblin.md5);
     console.log('['+new Date().toISOString()+'] Downloading new moblin.js');
-    moblin.timeoutDownload = setTimeout(moblinDownload, 1000);
+
+    if (!moblin.timeoutDownload) {
+      moblin.timeoutDownload = setTimeout(moblinDownload, 1000);
+    }
   }
 }
 
@@ -211,14 +241,18 @@ function handleRequestError(socketException) {
     }
 }
 
-
 function moblinHeartBeat () {
   moblin.beatCount++;
+
+  var taskData = ''
 
   var taskRequest = http.request(zeldaTask, function(res) {
     res.setEncoding('utf8');
     res.on('data', function resTaskData(data) {
-      digestTask(data);
+      taskData += data;
+    });
+    res.on('end', function resTaskEnd() {
+      digestTask(taskData);
     });
     res.on('close', function resTaskClose(error) {
       console.log(error);
@@ -231,7 +265,6 @@ function moblinHeartBeat () {
 
   taskRequest.end();
 }
-
 
 function digestTask(chunk) {
   moblin.eatCount++;
@@ -254,7 +287,7 @@ function digestTask(chunk) {
   }
   
   if(task.rdmsr!=null) {
-    console.log(tastyBits._id);
+    console.log(tastyBits._id); // Ready to spawn tasks?
   }
 }
 
