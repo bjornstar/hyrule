@@ -5,20 +5,28 @@ var crypto  = require('crypto');
 var fs      = require('fs');
 var util    = require('util');
 
-var appName = 'moblin';
-var appStart = new Date();
+var hyrule = new Object();
+hyrule.appName = 'Moblin';
+hyrule.appStart = new Date();
+hyrule.moblin = new Object();
+
+var moblin = hyrule.moblin;
 
 var zeldaIP = '10.30.0.73';
 
 console.log('['+new Date().toISOString()+'] Welcome to Hyrule.');
 
-var moblin = new Object();
-
 fs.readFile('package.json', 'utf8', function(err, data) {
   if (err) throw err;
   var jsonPackage = JSON.parse(data);
-  moblin.version = jsonPackage.version;
-  console.log('['+new Date().toISOString()+'] You are '+appName+' in Hyrule v'+moblin.version);
+  hyrule.version = jsonPackage.version;
+  console.log('['+new Date().toISOString()+'] You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
+});
+
+fs.readFile('moblin.js', 'utf8', function(err, data) {
+  if (err) throw err;
+  moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
+  console.log('['+new Date().toISOString()+'] MD5: '+moblin.md5);
 });
 
 var intInc = 0;
@@ -77,6 +85,15 @@ var zeldaVersion = {
   port: 3000
 };
 
+var zeldaDownload = {
+  agent: zeldaAgentVersion,
+  host: zeldaIP,
+  method: 'GET',
+  path: '/moblin.js',
+  port: 3000
+};
+
+
 moblin.heartRate = 50;
 moblin.EKGRate = 5000;
 moblin.umbilicalCord = false;
@@ -86,9 +103,10 @@ moblin.prevBeatCount = 0;
 moblin.prevEatCount = 0;
 moblin.checkCount = 0;
 moblin.prevCheckCount = 0;
-
-var moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
-var moblinEKGInterval = setInterval(moblinEKG, moblin.EKGRate);
+moblin.dlCount = 0;
+moblin.prevDlCount = 0;
+moblin.heartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
+moblin.EKGInterval = setInterval(moblinEKG, moblin.EKGRate);
 
 function moblinEKG () {
   if (Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))!=moblin.heartRate||Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount))!=moblin.heartRate) {
@@ -96,6 +114,41 @@ function moblinEKG () {
   }
   moblin.prevBeatCount = moblin.beatCount;
   moblin.prevEatCount = moblin.eatCount;
+}
+
+function moblinDownload() {
+  moblin.dlCount++;
+
+  var downloadRequest = http.request(zeldaDownload, function(res) {
+    res.setEncoding('utf8');
+    res.on('data', function resDownloadData(data) {
+      handleDownload(data);
+    });
+    res.on('close', function resDownloadClose(error) {
+      console.log(error);
+    });
+  });
+
+  downloadRequest.on('error', function downloadRequestError(socketException) {
+    handleRequestError(socketException);
+    if (!moblin.timeoutDownload) {
+      moblin.timeoutDownload = setTimeout(moblinDownload, 1000);
+    }
+  });
+
+  downloadRequest.end();
+}
+
+function handleDownload(data) {
+  fs.writeFile('moblin.js', data, function(err) {
+    if (err) throw err;
+    console.log('['+new Date().toISOString()+'] Updated moblin.js, this process has stopped taking new tasks.');
+    clearInterval(moblin.EKGInterval);
+    clearInterval(moblin.heartBeatInterval);
+    if (os.platform()==='win32'){
+      var nodeStartHack = spawn('cmd',['/c','start','node','moblin.js']);
+    }
+  });
 }
 
 function moblinVersionCheck () {
@@ -128,8 +181,19 @@ function handleVersionCheck(data) {
     console.log('['+new Date().toISOString()+'] Found Zelda.');
     moblin.umbilicalCord = true;
   }
-  console.log('['+new Date().toISOString()+'] Zelda says she is in Hyrule v'+data);
+
+  var remoteHyrule = JSON.parse(data);
+
+  console.log('['+new Date().toISOString()+'] Zelda says she is in Hyrule v'+remoteHyrule.version);
+  console.log('['+new Date().toISOString()+'] Zelda\'s MD5 value is: '+remoteHyrule.moblin.md5);
+  console.log('['+new Date().toISOString()+'] Your MD5 value is:    '+moblin.md5);
+
   moblin.prevCheckCount = moblin.checkCount;
+
+  if (remoteHyrule.moblin.md5!=moblin.md5) {
+    console.log('['+new Date().toISOString()+'] Downloading new moblin.js');
+    moblin.timeoutDownload = setTimeout(moblinDownload, 1000);
+  }
 }
 
 function handleRequestError(socketException) {
@@ -183,8 +247,8 @@ function digestTask(chunk) {
   if(task.pause && moblin.heartRate != task.pause) {
     console.log('['+new Date().toISOString()+'] Changing heart rate from '+moblin.heartRate+' to '+task.pause+'.');
     moblin.heartRate = task.pause;
-    clearInterval(moblinHeartBeatInterval);
-    moblinHeartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
+    clearInterval(moblin.heartBeatInterval);
+    moblin.heartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
   } else if (task.pause) {
     return;
   }

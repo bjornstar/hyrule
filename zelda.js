@@ -1,6 +1,7 @@
 var	mongodb		= require('mongodb');
 var	express		= require('express');
 var	fs		= require('fs');
+var	crypto		= require('crypto');
 
 var ObjectID = mongodb.ObjectID;
 
@@ -9,15 +10,28 @@ var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
 
 var timeBoot = new Date();
 
-var appName = 'Zelda';
+var hyrule = new Object();
+hyrule.appName = 'Zelda';
+hyrule.moblin = new Object();
 
 dbHyrule.open(function() {
-	console.log('Welcome to Hyrule.');
-	var timeDBOpen = new Date();
-	console.log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + appName + ' to connect to the database.');
+  console.log('['+new Date().toISOString()+'] Welcome to Hyrule.');
+  var timeDBOpen = new Date();
+  console.log('['+new Date().toISOString()+'] It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
 
-console.log('Hello, my name is ' + appName + '!');
+fs.readFile('package.json', 'utf8', function(err,data) {
+  if (err) throw err;
+  var jsonPackage = JSON.parse(data);
+  hyrule.version = jsonPackage.version;
+  console.log('['+new Date().toISOString()+'] You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
+});
+
+fs.readFile('moblin.js', 'utf8', function(err,data) {
+  if (err) throw err;
+  hyrule.moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
+  console.log('['+new Date().toISOString()+'] MD5: '+hyrule.moblin.md5);
+});
 
 var defaultPause = 10;
 
@@ -378,12 +392,11 @@ zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:
 });
 
 zelda.get('/version', function(req,res) {
-	fs.readFile('package.json', 'utf8', function(err,data) {
-		if (err) throw err;
-		var jsonPackage = JSON.parse(data);
-		zelda.version = jsonPackage.version;
-		res.send(zelda.version);
-	});
+	res.send(hyrule);
+});
+
+zelda.get('/moblin.js', function(req,res) {
+  res.sendfile('moblin.js');
 });
 
 zelda.listen(3000);
