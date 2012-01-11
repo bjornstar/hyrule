@@ -43,6 +43,9 @@ io.sockets.on('connection', function (socket) {
 			if (socketCollection[socket.id]) {
 				dbHyrule.collection('machines', function(errCollection, collectionMachine) {
        				        collectionMachine.find({},{timesseen:1}).sort({_id:1}).toArray( function(errFind, rMachines) {
+if (!socketCollection[socket.id]) {
+	return;
+}
 						var output;
 						var totalTimesseen = 0;
 						for (rMachine in rMachines) {

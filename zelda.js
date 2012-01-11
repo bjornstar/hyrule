@@ -359,7 +359,7 @@ zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', 
 		return;
 	}
 
-	if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 50) {
+	if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
 		lastOverRun = new Date();
 		defaultPause-=5;
 	}

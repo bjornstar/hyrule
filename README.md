@@ -14,3 +14,4 @@ Ganon
 
 Moblin
 
+Fairy
