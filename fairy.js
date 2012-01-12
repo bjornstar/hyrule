@@ -13,18 +13,24 @@ hyrule.moblins.push(fork('moblin.js'));
 
 var moblin = hyrule.moblins[0];
 
+hyrule.fairy = new Object();
+var fairy = hyrule.fairy;
+
 fs.readFile('moblin.js', 'utf8', function(err, data) {
   if (err) throw err;
   moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
-  console.log('['+new Date().toISOString()+'] MD5: '+moblin.md5);
+  console.log('['+new Date().toISOString()+'] Moblin MD5: '+moblin.md5);
+});
+
+fs.readFile('fairy.js', 'utf8', function(err, data) {
+  if (err) throw err;
+  fairy.md5 = crypto.createHash('md5').update(data).digest('hex');
+  console.log('['+new Date().toISOString()+'] Fairy MD5:  '+fairy.md5);
 });
 
 moblin.on('message', function moblinMessage(m) {
   handleMoblinMessage(m);
 });
-
-hyrule.fairy = new Object();
-var fairy = hyrule.fairy;
 
 hyrule.zeldaIP = '10.30.0.73';
 
@@ -149,9 +155,10 @@ function handleDownloadFinished(data) {
     clearInterval(fairy.versionCheckInterval);
 
     // Probably should do something to make sure we don't fork bomb.
-    // Also make sure new version can at least launch and handle tasks.
 
-    moblin.send({fairy: 'Hold on a sec.'});
+    if (!moblin.stdin.destroyed) {
+      moblin.send({fairy: 'Hold on a sec.'});
+    }
 
     hyrule.moblins.push(fork('newmoblin.js'));
     var newMoblin = hyrule.moblins[hyrule.moblins.length-1];
@@ -159,6 +166,7 @@ function handleDownloadFinished(data) {
     newMoblin.on('message', function newMoblinMessage(m) {
       handleMoblinMessage(m);
     });
+    fairy.timeoutStartup = setTimeout(failedMoblinStartup, 1000); // This is probably bad too.
     fairy.timeoutDownload = null;
   });
 }
@@ -169,10 +177,13 @@ function handleMoblinMessage(m) {
       if (hyrule.moblins.length>1) {
         fs.rename('newmoblin.js', 'moblin.js', function renameNewMoblin(err) {
           var oldMoblin = hyrule.moblins.shift();
-          oldMoblin.send({fairy:'Goodbye.'});
+          if (!moblin.stdin.destroyed) {
+            oldMoblin.send({fairy:'Goodbye.'});
+          }
           moblin = hyrule.moblins[0];
 
           fairy.versionCheckInterval = setInterval(moblinVersionCheck, fairy.versionCheckRate);
+          clearTimeout(fairy.timeoutStartup);
         });
       }
       break;
@@ -181,20 +192,30 @@ function handleMoblinMessage(m) {
   }
 }
 
-function handleRequestError(socketException) {
-    switch(socketException.code) {
-      case 'ECONNRESET':
-        console.log('['+new Date().toISOString()+'] Zelda just died.');
-        moblin.umbilicalCord = false;
-        break;
-      case 'ECONNREFUSED':
-        console.log('['+new Date().toISOString()+'] Can\'t find Zelda.');
-        moblin.umbilicalCord = false;
-        break;
-      default:
-        console.log(socketException);
-    }
+function failedMoblinStartup() {
+  console.log('New Moblin failed to start up.');
+  if (!moblin.stdin.destroyed) {
+    moblin.send({fairy: 'OK, keep going.'});
+  }
+  fairy.versionCheckInterval = setInterval(moblinVersionCheck, fairy.versionCheckRate);
 }
 
-
+function handleRequestError(socketException) {
+  switch(socketException.code) {
+    case 'ECONNRESET':
+      if (moblin.umbilicalCord) {
+        console.log('['+new Date().toISOString()+'] Fairy saw Zelda die.');
+        moblin.umbilicalCord = false;
+      }
+      break;
+    case 'ECONNREFUSED':
+      if (moblin.umbilicalCord) {
+        console.log('['+new Date().toISOString()+'] Fairy can\'t find Zelda.');
+        moblin.umbilicalCord = false;
+      }
+      break;
+    default:
+      console.log(socketException);
+  }
+}
 

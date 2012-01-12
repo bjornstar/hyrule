@@ -1,18 +1,20 @@
-var	mongodb		= require('mongodb');
-var	express		= require('express');
-var	fs		= require('fs');
-var	crypto		= require('crypto');
+var mongodb = require('mongodb');
+var express = require('express');
+var fs      = require('fs');
+var crypto  = require('crypto');
+var net     = require('net');
 
 var ObjectID = mongodb.ObjectID;
 
-var serverHorcrux = new mongodb.Server('localhost', 27017);
-var dbHyrule = new mongodb.Db('hyrule', serverHorcrux, {});
+var serverHyrule = new mongodb.Server('localhost', 27017);
+var dbHyrule = new mongodb.Db('hyrule', serverHyrule, {});
 
 var timeBoot = new Date();
 
 var hyrule = new Object();
 hyrule.appName = 'Zelda';
 hyrule.moblin = new Object();
+hyrule.fairy = new Object();
 
 dbHyrule.open(function() {
   console.log('['+new Date().toISOString()+'] Welcome to Hyrule.');
@@ -30,12 +32,18 @@ fs.readFile('package.json', 'utf8', function(err,data) {
 fs.readFile('moblin.js', 'utf8', function(err,data) {
   if (err) throw err;
   hyrule.moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
-  console.log('['+new Date().toISOString()+'] MD5: '+hyrule.moblin.md5);
+  console.log('['+new Date().toISOString()+'] Moblin MD5: '+hyrule.moblin.md5);
 });
 
-var defaultPause = 10;
+fs.readFile('fairy.js', 'utf8', function(err,data) {
+  if (err) throw err;
+  hyrule.fairy.md5 = crypto.createHash('md5').update(data).digest('hex');
+  console.log('['+new Date().toISOString()+'] Fairy MD5:  '+hyrule.fairy.md5);
+});
 
-var zelda = express.createServer();
+var defaultPause = 50;
+
+var zeldaExpress = express.createServer();
 
 function Client(mac) {
 	var self = this; //You have to do this so you can reference these things later.
@@ -342,7 +350,7 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 var inProgress = new Object();
 var lastOverRun = new Date();
 
-zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', function(req, res){
+zeldaExpress.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', function(req, res){
 	var reqTime = new Date();
 	if (inProgress[req.params.mac]) {
 		inProgress[req.params.mac]++;
@@ -369,7 +377,7 @@ zelda.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', 
 	zCurrent.task(req, res);
 });
 
-zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
+zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
 	if (inProgress[req.params.mac]) {
 		res.json({task:{pause:defaultPause}});
 		overRun++;
@@ -379,7 +387,7 @@ zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:
 	zCurrent.pass(req, res);
 });
 
-zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
+zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
 	if (inProgress[req.params.mac]) {
 		res.json({task:{pause:defaultPause}});
 		overRun++;
@@ -391,13 +399,55 @@ zelda.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:
 	zCurrent.fail(req, res);
 });
 
-zelda.get('/version', function(req,res) {
+zeldaExpress.get('/version', function(req,res) {
 	res.send(hyrule);
 });
 
-zelda.get('/moblin.js', function(req,res) {
+zeldaExpress.get('/moblin.js', function(req,res) {
   res.sendfile('moblin.js');
 });
 
-zelda.listen(3000);
+zeldaExpress.get('/fairy.js', function(req,res) {
+  res.sendfile('fairy.js');
+});
 
+zeldaExpress.listen(3000);
+
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//  That's web stuff, it's slow (on linux).
+//
+
+
+//
+//  This is socket stuff, it's fast (on linux).
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
+var zeldaSocket = net.createServer(function serverCreated(c) {
+  c.setEncoding('utf8');
+  c.on('end', function() {
+    console.log('Moblin disconnected.');
+  });
+  c.on('data', function zeldaSocketData(data) {
+    if (data.length>45) {
+      console.log(data);
+      return;
+    }
+    var moblinData = JSON.parse(data);
+    var zCurrent = new Client(moblinData.params.mac);
+
+    var responseObject = new Object();
+    responseObject.send = function(out) {
+      c.write(out);
+    }
+    responseObject.json = function(out) {
+      var output = JSON.stringify(out)
+      c.write(output);
+    }
+
+    zCurrent.task(moblinData,responseObject);
+  });
+});
+
+zeldaSocket.listen(3003, function zeldaSocketListen() {
+  console.log('ZeldaSocket is listening on port 3003.');
+});

@@ -1,18 +1,21 @@
-var spawn   = require('child_process').spawn;
-var http    = require('http');
-var os      = require('os');
-var crypto  = require('crypto');
+var crypto = require('crypto');
+var http   = require('http');
+var net    = require('net');
+var os     = require('os');
+var spawn  = require('child_process').spawn;
 
 var hyrule = new Object();
 hyrule.appName = 'Moblin';
 hyrule.appStart = new Date();
 hyrule.moblin = new Object();
 
+function log(data){
+  console.log('['+new Date().toISOString()+'] Moblin.'+process.pid+': '+data);
+}
+
 var moblin = hyrule.moblin;
 
 var zeldaIP = '10.30.0.73';
-
-console.log('['+new Date().toISOString()+'] Welcome to Hyrule.');
 
 var intInc = 0;
 
@@ -29,14 +32,20 @@ process.on('message', function parentMessage(m) {
 function handleParentMessage(m) {
   switch(m.fairy) {
     case 'Hold on a sec.':
-      clearInterval(moblin.heartBeatInterval);
+      clearInterval(moblin.httpHeartBeatInterval);
+      clearInterval(moblin.socketHeartBeatInterval);
       clearInterval(moblin.EKGInterval);
       break;
     case 'Goodbye.':
       process.exit();
       break;
+    case 'OK, keep going.':
+      moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate);
+      moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
+      moblin.EKGInterval = setInterval(moblinEKG, moblin.EKGRate);
+      break;
     default:
-      console.log(m.fairy);
+      log(m.fairy);
   }
 }
 
@@ -64,10 +73,8 @@ function generateObjectId() {
   return nameNew;
 }
 
-console.log('['+new Date().toISOString()+'] I dub thee moblin_'+moblin.name+'.');
-
-var zeldaAgentVersion = new http.Agent();
-zeldaAgentVersion.maxSockets = 5;
+log('Welcome to Hyrule.');
+log('I dub thee moblin_'+moblin.name+'.');
 
 var zeldaTask = {
   host: zeldaIP,
@@ -84,7 +91,6 @@ var zeldaVersion = {
 };
 
 var zeldaDownload = {
-  agent: zeldaAgentVersion,
   host: zeldaIP,
   method: 'GET',
   path: '/moblin.js',
@@ -92,42 +98,79 @@ var zeldaDownload = {
 };
 
 moblin.heartRate = 50;
+moblin.heartRateDisconnected = 1000;
 moblin.EKGRate = 5000;
+moblin.EKGFreePass = true;
 moblin.umbilicalCord = false;
 moblin.beatCount = 0;
 moblin.eatCount = 0;
 moblin.prevBeatCount = 0;
 moblin.prevEatCount = 0;
-moblin.heartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
+moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate);
+moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
 moblin.EKGInterval = setInterval(moblinEKG, moblin.EKGRate);
 
 function moblinEKG () {
-  if (Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))!=moblin.heartRate||Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount))!=moblin.heartRate) {
-    console.log('['+new Date().toISOString()+'] Irregular Heartbeat! '+Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))+' '+Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount)));
+  var heartOK = false;
+  if (!heartOK && Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))==moblin.heartRate) {
+    heartOK = true;
+  }
+  if (heartOK && Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount))==moblin.heartRate) {
+    heartOK = true;
+  }
+  if (heartOK && moblin.eatCount-moblin.prevEatCount==0) {
+    heartOK = true;
+  }
+  if (!heartOK && !moblin.EKGFreePass) {
+    log('Irregular Heartbeat! '+Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))+' '+Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount)));
   }
   moblin.prevBeatCount = moblin.beatCount;
   moblin.prevEatCount = moblin.eatCount;
+  moblin.EKGFreePass = false;
 }
 
-function handleRequestError(socketException) {
-    switch(socketException.code) {
-      case 'ECONNRESET':
-        console.log('['+new Date().toISOString()+'] Zelda just died.');
-	moblin.umbilicalCord = false;
-        break;
-      case 'ECONNREFUSED':
-        console.log('['+new Date().toISOString()+'] Can\'t find Zelda.');
-	moblin.umbilicalCord = false;
-        break;
-      default:
-        console.log(socketException);
-    }
+function setHeartRate(newRate) {
+  if (moblin.heartRate===newRate) {
+    return;
+  }
+
+  log('Changing Heartrate from '+moblin.heartRate+' to '+newRate);
+
+  var oldRate = moblin.heartRate;
+  moblin.heartRate = newRate;
+  clearInterval(moblin.httpHeartBeatInterval);
+  clearInterval(moblin.socketHeartBeatInterval);
+  moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate+10000);
+  moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
+  moblin.EKGFreePass = true;
 }
 
-function moblinHeartBeat () {
+function handleSocketError(socketException) {
+  switch(socketException.code) {
+    case 'ECONNRESET':
+      if (moblin.umbilicalCord) {
+        log('I saw Zelda die.');
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
+    case 'ECONNREFUSED':
+      if (moblin.umbilicalCord) {
+        log('I can\'t find Zelda.');
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
+    default:
+      log(socketException);
+  }
+}
+
+function moblinHttpHeartBeat () {
   moblin.beatCount++;
 
   var taskData = ''
+  var taskStart = new Date();
 
   var taskRequest = http.request(zeldaTask, function(res) {
     res.setEncoding('utf8');
@@ -135,47 +178,54 @@ function moblinHeartBeat () {
       taskData += data;
     });
     res.on('end', function resTaskEnd() {
-      digestTask(taskData);
+      digestTask(taskData, taskStart);
     });
     res.on('close', function resTaskClose(error) {
-      console.log(error);
+      log(error);
     });
   });
 
   taskRequest.on('error', function taskRequestError(socketException) {
-    handleRequestError(socketException);
+    handleSocketError(socketException);
   });
 
   taskRequest.end();
 }
 
-function digestTask(chunk) {
+function digestTask(chunk, taskStart) {
   moblin.eatCount++;
+
+  if (chunk.length>21) {
+    log('invalid json '+chunk);
+    return;
+  }
 
   var tastyBits = JSON.parse(chunk);
   var task = tastyBits.task;
 
   if (!moblin.umbilicalCord) {
-    console.log('['+new Date().toISOString()+'] Moblin found Zelda.');
+    log('I found Zelda.');
     moblin.umbilicalCord = true;
   }
 
   if(moblin.eatCount===1) {
-    process.send({moblin:'I handled my first task.'});
+    if (process.send) {
+      process.send({moblin:'I handled my first task.'});
+   }
   }
 
+  var taskEnd = new Date();
+//  console.log((taskEnd-taskStart)+' '+task.pause);
+
   if(task.pause && moblin.heartRate != task.pause) {
-    console.log('['+new Date().toISOString()+'] Changing heart rate from '+moblin.heartRate+' to '+task.pause+'.');
-    moblin.heartRate = task.pause;
-    clearInterval(moblin.heartBeatInterval);
-    moblin.heartBeatInterval = setInterval(moblinHeartBeat, moblin.heartRate);
+    setHeartRate(task.pause);
     return;
   } else if (task.pause) {
     return;
   }
   
   if(task.rdmsr!=null) {
-    console.log(tastyBits._id); // Ready to spawn tasks?
+    log(tastyBits._id); // Ready to spawn tasks?
   }
 }
 
@@ -194,3 +244,36 @@ pingy.stderr.on('data', function (data) {
 pingy.on('exit', function (code) {
   console.log('pingy exited with code ' + code);
 });*/
+
+var moblinSocket = new net.Socket();
+
+moblinSocket.connect(3003, zeldaIP, function moblinSocketConnect() {
+  moblinSocket.on('error', function moblinSocketError(socketException) {
+    handleSocketError(socketException);
+  });
+  moblinSocket.setEncoding('utf8');
+});
+
+moblinSocket.on('data', function moblinSocketData(data) {
+  digestTask(data, null);
+});
+
+moblinSocket.on('end', function moblinSocketEnd() {
+  log('Disconnected from Zelda.');
+});
+
+moblinSocket.on('close', function moblinSocketClose(had_error) {
+  log('socket closed. had_error='+had_error);
+});
+
+function moblinSocketHeartBeat() {
+  var output = JSON.stringify({params:{mac:moblin.name}});
+  if (moblinSocket.destroyed) {
+    moblinSocket.connect(3003, zeldaIP);
+    return;
+  }
+  if (moblinSocket.bufferSize>0) {
+    return;
+  }
+  moblinSocket.write(output);
+}
