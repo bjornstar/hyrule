@@ -424,27 +424,86 @@ zeldaExpress.listen(3000);
 
 var zeldaSocket = net.createServer(function serverCreated(c) {
   c.setEncoding('utf8');
+  c.setNoDelay(true);
+
   c.on('end', function() {
     console.log('Moblin disconnected.');
   });
+
+  c.on('error', function zeldaSocketError(socketException) {
+    handleSocketError(socketException);
+  });
+
+  var zeldaData = '';
   c.on('data', function zeldaSocketData(data) {
-    if (data.length>45) {
-      console.log(data);
+    zeldaData+=data;
+
+    if (zeldaData.lastIndexOf(String.fromCharCode(3))!=zeldaData.length-1) {
       return;
     }
-    var moblinData = JSON.parse(data);
-    var zCurrent = new Client(moblinData.params.mac);
 
-    var responseObject = new Object();
-    responseObject.send = function(out) {
-      c.write(out);
-    }
-    responseObject.json = function(out) {
-      var output = JSON.stringify(out)
-      c.write(output);
-    }
+    var prevChunk = '';
+    var chunks = zeldaData.split(String.fromCharCode(3));
 
-    zCurrent.task(moblinData,responseObject);
+    for (chunk in chunks) {
+      if (chunks[chunk].length==0) {
+        continue;
+      }
+      if (chunks[chunk]==prevChunk) {
+//        continue;
+      }
+
+      prevChunk = chunks[chunk];
+
+      var moblinData = JSON.parse(chunks[chunk]);
+
+      var responseObject = new Object();
+      responseObject.send = function(out) {
+        if (c.destroyed) {
+          return;
+        }
+        c.write(out);
+        c.write(String.fromCharCode(3));
+      }
+      responseObject.json = function(out) {
+        var output = JSON.stringify(out)
+        if (c.destroyed) {
+          return;
+        }
+        c.write(output);
+        c.write(String.fromCharCode(3));
+      }
+
+      var reqTime = new Date();
+
+      if (inProgress[moblinData.params.mac]) {
+        inProgress[moblinData.params.mac]++;
+        if (inProgress[moblinData.params.mac] >= 3) {
+          lastOverRun = new Date();
+        }
+        if (inProgress[moblinData.params.mac] >= 10) {
+          console.log('THE BRAKES!');
+          console.log(inProgress);
+          defaultPause +=5;
+          inProgress[moblinData.params.mac] = 1;
+        }
+        responseObject.json({task:{pause:defaultPause}});
+        return;
+      }
+
+      if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
+        lastOverRun = new Date();
+        defaultPause-=5;
+      }
+
+      inProgress[moblinData.params.mac] = new Object();
+      inProgress[moblinData.params.mac] = 1;
+
+      var zCurrent = new Client(moblinData.params.mac);
+      zCurrent.task(moblinData,responseObject);
+    }
+    zeldaData = '';
+    prevChunk = '';
   });
 });
 

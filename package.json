@@ -1,7 +1,7 @@
 {
   "name": "hyrule",
   "description": "A magical wonderland where hardware gets tested.",
-  "version": "0.0.122",
+  "version": "0.0.13",
   "dependencies": {
     "mongodb": ">=0.9.7",
     "express": ">=2.5.5",

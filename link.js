@@ -112,7 +112,6 @@ link.get('/machines', function(req, res){
 				}
 				output += ' ' + mResult.timesseen;
 				output += ' ' + mResult.lastseen;
-				output += ' ' + mResult.jobs.length;
 				output += ' <a href="/machine/' +mResult._id + '/createjob">add a job</a>';
 				output += '<br />\r\n';
 			}

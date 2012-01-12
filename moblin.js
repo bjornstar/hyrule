@@ -140,7 +140,7 @@ function setHeartRate(newRate) {
   moblin.heartRate = newRate;
   clearInterval(moblin.httpHeartBeatInterval);
   clearInterval(moblin.socketHeartBeatInterval);
-  moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate+10000);
+  moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate+4990);
   moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
   moblin.EKGFreePass = true;
 }
@@ -252,28 +252,50 @@ moblinSocket.connect(3003, zeldaIP, function moblinSocketConnect() {
     handleSocketError(socketException);
   });
   moblinSocket.setEncoding('utf8');
+  moblinSocket.setNoDelay(true);
+
+  var moblinData = '';
+  moblinSocket.once('data', function moblinSocketData(data) {
+    moblinData+=data;
+    if (moblinData.lastIndexOf(String.fromCharCode(3))!=moblinData.length-1) {
+      return;
+    }
+    var chunks = moblinData.split(String.fromCharCode(3));
+    for (chunk in chunks) {
+      if (chunks[chunk].length==0) {
+        continue;
+      }
+      digestTask(chunks[chunk], null);
+    }
+    moblinData = '';
+  });
+
+  moblinSocket.on('end', function moblinSocketEnd() {
+    log('Disconnected from Zelda.');
+  });
+
+  moblinSocket.on('close', function moblinSocketClose(had_error) {
+    //log('socket closed. had_error='+had_error);
+  });
 });
 
-moblinSocket.on('data', function moblinSocketData(data) {
-  digestTask(data, null);
-});
-
-moblinSocket.on('end', function moblinSocketEnd() {
-  log('Disconnected from Zelda.');
-});
-
-moblinSocket.on('close', function moblinSocketClose(had_error) {
-  log('socket closed. had_error='+had_error);
-});
 
 function moblinSocketHeartBeat() {
+  moblin.beatCount++;
+
   var output = JSON.stringify({params:{mac:moblin.name}});
   if (moblinSocket.destroyed) {
-    moblinSocket.connect(3003, zeldaIP);
+    moblinSocket.connect(3003, zeldaIP, function moblinSocketReconnect() {
+      moblinSocket.once('error', function moblinSocketReconnectError(socketException) {
+        handleSocketError(socketException);
+      });
+    });
     return;
   }
   if (moblinSocket.bufferSize>0) {
     return;
   }
   moblinSocket.write(output);
+  moblinSocket.write(String.fromCharCode(3));
 }
+
