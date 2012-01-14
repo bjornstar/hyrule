@@ -95,6 +95,27 @@ var zeldaDownload = {
   port: 3000
 };
 
+function handleSocketError(socketException) {
+  switch(socketException.code) {
+    case 'ECONNRESET':
+      if (moblin.umbilicalCord) {
+        log('I saw Zelda die.');
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
+    case 'ECONNREFUSED':
+      if (moblin.umbilicalCord) {
+        log('I can\'t find Zelda.');
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
+    default:
+      log(socketException);
+  }
+}
+
 moblin.heartRate = 50;
 moblin.heartRateDisconnected = 1000;
 moblin.EKGRate = 5000;
@@ -192,7 +213,7 @@ function digestTask(chunk, taskStart) {
   }
 
   var taskEnd = new Date();
-  log((taskEnd-taskStart)+' '+task.pause);
+  //log((taskEnd-taskStart)+' '+task.pause);
 
   if(task.pause && moblin.heartRate != task.pause) {
     setHeartRate(task.pause);
@@ -225,11 +246,7 @@ pingy.on('exit', function (code) {
 var moblinSocket = new net.Socket();
 
 moblinSocket.connect(3003, zeldaIP, function moblinSocketConnect() {
-  moblinSocket.once('error', function moblinSocketError(socketException) {
-    log('socketError');
-    log(require('util').inspect(moblinSocket));
-    handleSocketError(socketException);
-  });
+  moblinSocket.on('error', handleSocketError);
   moblinSocket.setEncoding('utf8');
   moblinSocket.setNoDelay(true);
 
@@ -266,12 +283,7 @@ function moblinSocketHeartBeat() {
 
   var output = JSON.stringify({params:{mac:moblin.name}});
   if (moblinSocket.destroyed) {
-    moblinSocket.connect(); /*3003, zeldaIP, function moblinSocketReconnect() {
-      moblinSocket.once('error', function moblinSocketReconnectError(socketException) {
-        log('reconnect Error');
-        handleSocketError(socketException);
-      });
-    });*/
+    moblinSocket.connect();
     return;
   }
   if (moblinSocket.bufferSize>0) {
@@ -280,25 +292,3 @@ function moblinSocketHeartBeat() {
   moblinSocket.write(output);
   moblinSocket.write(String.fromCharCode(3));
 }
-
-function handleSocketError(socketException) {
-  switch(socketException.code) {
-    case 'ECONNRESET':
-      if (moblin.umbilicalCord) {
-        log('I saw Zelda die.');
-        moblin.umbilicalCord = false;
-        setHeartRate(moblin.heartRateDisconnected);
-      }
-      break;
-    case 'ECONNREFUSED':
-      if (moblin.umbilicalCord) {
-        log('I can\'t find Zelda.');
-        moblin.umbilicalCord = false;
-        setHeartRate(moblin.heartRateDisconnected);
-      }
-      break;
-    default:
-      log(socketException);
-  }
-}
-

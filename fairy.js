@@ -174,7 +174,7 @@ function handleDownloadFinished(data) {
     // Probably should do something to make sure we don't fork bomb.
 
     if (hyrule.moblins[0].stdin && !hyrule.moblins[0].stdin.destroyed) {
-      moblin.send({fairy: 'Hold on a sec.'});
+      hyrule.moblins[0].send({fairy: 'Hold on a sec.'});
     }
 
     hyrule.moblins.push(fork('newmoblin.js'));
@@ -194,7 +194,7 @@ function handleMoblinMessage(m) {
       if (hyrule.moblins.length>1) {
         fs.rename('newmoblin.js', 'moblin.js', function renameNewMoblin(err) {
           var oldMoblin = hyrule.moblins.shift();
-          if (!moblin.stdin.destroyed) {
+          if (oldMoblin.stdin && !oldMoblin.stdin.destroyed) {
             oldMoblin.send({fairy:'Goodbye.'});
           }
           moblin = hyrule.moblins[0];
@@ -211,8 +211,9 @@ function handleMoblinMessage(m) {
 
 function failedMoblinStartup() {
   console.log('New Moblin failed to start up.');
-  if (!moblin.stdin.destroyed) {
-    moblin.send({fairy: 'OK, keep going.'});
+  console.log(hyrule.moblins);
+  if (hyrule.moblins[0].stdin && !hyrule.moblins[0].stdin.destroyed) {
+    hyrule.moblins[0].send({fairy: 'OK, keep going.'});
   }
   fairy.versionCheckInterval = setInterval(moblinVersionCheck, fairy.versionCheckRate);
 }
