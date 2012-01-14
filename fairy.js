@@ -9,18 +9,9 @@ var appStart = new Date();
 
 var hyrule = new Object();
 hyrule.moblins = new Array();
-hyrule.moblins.push(fork('moblin.js'));
-
-var moblin = hyrule.moblins[0];
 
 hyrule.fairy = new Object();
 var fairy = hyrule.fairy;
-
-fs.readFile('moblin.js', 'utf8', function(err, data) {
-  if (err) throw err;
-  moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
-  console.log('['+new Date().toISOString()+'] Moblin MD5: '+moblin.md5);
-});
 
 fs.readFile('fairy.js', 'utf8', function(err, data) {
   if (err) throw err;
@@ -28,8 +19,25 @@ fs.readFile('fairy.js', 'utf8', function(err, data) {
   console.log('['+new Date().toISOString()+'] Fairy MD5:  '+fairy.md5);
 });
 
-moblin.on('message', function moblinMessage(m) {
-  handleMoblinMessage(m);
+fs.readFile('moblin.js', 'utf8', function(err, data) {
+  if (err) {
+    console.log('['+new Date().toISOString()+'] Cannot find moblin.js, will download from Zelda.');
+    hyrule.moblins.push({md5:''});
+    return;
+  }
+  var moblinMD5 = crypto.createHash('md5').update(data).digest('hex');
+  console.log('['+new Date().toISOString()+'] Moblin MD5: '+moblinMD5);
+
+  hyrule.moblins.push(fork('moblin.js')); // This doesn't launch moblin until the file is read and MD5 is performed.
+
+  process.on('exit', function () {
+   hyrule.moblins[0].send({fairy:'Goodbye.'});
+  });
+
+  hyrule.moblins[0].md5 = moblinMD5;
+  hyrule.moblins[0].on('message', function moblinMessage(m) {
+    handleMoblinMessage(m);
+  });
 });
 
 hyrule.zeldaIP = '10.30.0.73';
@@ -92,7 +100,13 @@ function handleVersionCheck(data) {
 
   hyrule.remoteMD5 = remoteHyrule.moblin.md5;
 
-  if (remoteHyrule.moblin.md5!=moblin.md5) {
+  for (moblinNumber in hyrule.moblins) {
+    var moblin = hyrule.moblins[moblinNumber];
+
+    if (remoteHyrule.moblin.md5==moblin.md5) {
+      return;
+    }
+
     console.log('['+new Date().toISOString()+'] Zelda says she is in Hyrule v'+remoteHyrule.version);
     console.log('['+new Date().toISOString()+'] Zelda\'s MD5: '+remoteHyrule.moblin.md5);
     console.log('['+new Date().toISOString()+'] Your MD5:    '+moblin.md5);
@@ -111,6 +125,8 @@ function moblinDownload() {
     clearTimeout(fairy.timeoutDownload);
     fairy.dlCount = 0;
   }
+
+  delete fairy.timeoutDownload;
 
   var downloadRequest = http.request(hyrule.zeldaDownload, function(res) {
     res.setEncoding('utf8');
@@ -152,11 +168,12 @@ function handleDownloadFinished(data) {
       return;
     }
 
+
     clearInterval(fairy.versionCheckInterval);
 
     // Probably should do something to make sure we don't fork bomb.
 
-    if (!moblin.stdin.destroyed) {
+    if (hyrule.moblins[0].stdin && !hyrule.moblins[0].stdin.destroyed) {
       moblin.send({fairy: 'Hold on a sec.'});
     }
 
@@ -203,15 +220,15 @@ function failedMoblinStartup() {
 function handleRequestError(socketException) {
   switch(socketException.code) {
     case 'ECONNRESET':
-      if (moblin.umbilicalCord) {
+      if (fairy.umbilicalCord||fairy.umbilicalCord===undefined) {
         console.log('['+new Date().toISOString()+'] Fairy saw Zelda die.');
-        moblin.umbilicalCord = false;
+        fairy.umbilicalCord = false;
       }
       break;
     case 'ECONNREFUSED':
-      if (moblin.umbilicalCord) {
+      if (fairy.umbilicalCord||fairy.umbilicalCord===undefined) {
         console.log('['+new Date().toISOString()+'] Fairy can\'t find Zelda.');
-        moblin.umbilicalCord = false;
+        fairy.umbilicalCord = false;
       }
       break;
     default:

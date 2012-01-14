@@ -14,9 +14,7 @@ function log(data){
 }
 
 var moblin = hyrule.moblin;
-
 var zeldaIP = '10.30.0.73';
-
 var intInc = 0;
 
 if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
@@ -145,27 +143,6 @@ function setHeartRate(newRate) {
   moblin.EKGFreePass = true;
 }
 
-function handleSocketError(socketException) {
-  switch(socketException.code) {
-    case 'ECONNRESET':
-      if (moblin.umbilicalCord) {
-        log('I saw Zelda die.');
-        moblin.umbilicalCord = false;
-        setHeartRate(moblin.heartRateDisconnected);
-      }
-      break;
-    case 'ECONNREFUSED':
-      if (moblin.umbilicalCord) {
-        log('I can\'t find Zelda.');
-        moblin.umbilicalCord = false;
-        setHeartRate(moblin.heartRateDisconnected);
-      }
-      break;
-    default:
-      log(socketException);
-  }
-}
-
 function moblinHttpHeartBeat () {
   moblin.beatCount++;
 
@@ -215,7 +192,7 @@ function digestTask(chunk, taskStart) {
   }
 
   var taskEnd = new Date();
-//  console.log((taskEnd-taskStart)+' '+task.pause);
+  log((taskEnd-taskStart)+' '+task.pause);
 
   if(task.pause && moblin.heartRate != task.pause) {
     setHeartRate(task.pause);
@@ -248,24 +225,28 @@ pingy.on('exit', function (code) {
 var moblinSocket = new net.Socket();
 
 moblinSocket.connect(3003, zeldaIP, function moblinSocketConnect() {
-  moblinSocket.on('error', function moblinSocketError(socketException) {
+  moblinSocket.once('error', function moblinSocketError(socketException) {
+    log('socketError');
+    log(require('util').inspect(moblinSocket));
     handleSocketError(socketException);
   });
   moblinSocket.setEncoding('utf8');
   moblinSocket.setNoDelay(true);
 
   var moblinData = '';
-  moblinSocket.once('data', function moblinSocketData(data) {
-    moblinData+=data;
+  moblinSocket.on('data', function moblinSocketData(data) {
+    moblinData += data;
+    moblin.umbilicalCord = true;
     if (moblinData.lastIndexOf(String.fromCharCode(3))!=moblinData.length-1) {
       return;
     }
+var dataStart = new Date();
     var chunks = moblinData.split(String.fromCharCode(3));
     for (chunk in chunks) {
       if (chunks[chunk].length==0) {
         continue;
       }
-      digestTask(chunks[chunk], null);
+      digestTask(chunks[chunk], dataStart);
     }
     moblinData = '';
   });
@@ -285,11 +266,12 @@ function moblinSocketHeartBeat() {
 
   var output = JSON.stringify({params:{mac:moblin.name}});
   if (moblinSocket.destroyed) {
-    moblinSocket.connect(3003, zeldaIP, function moblinSocketReconnect() {
+    moblinSocket.connect(); /*3003, zeldaIP, function moblinSocketReconnect() {
       moblinSocket.once('error', function moblinSocketReconnectError(socketException) {
+        log('reconnect Error');
         handleSocketError(socketException);
       });
-    });
+    });*/
     return;
   }
   if (moblinSocket.bufferSize>0) {
@@ -297,5 +279,26 @@ function moblinSocketHeartBeat() {
   }
   moblinSocket.write(output);
   moblinSocket.write(String.fromCharCode(3));
+}
+
+function handleSocketError(socketException) {
+  switch(socketException.code) {
+    case 'ECONNRESET':
+      if (moblin.umbilicalCord) {
+        log('I saw Zelda die.');
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
+    case 'ECONNREFUSED':
+      if (moblin.umbilicalCord) {
+        log('I can\'t find Zelda.');
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
+    default:
+      log(socketException);
+  }
 }
 

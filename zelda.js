@@ -29,20 +29,41 @@ fs.readFile('package.json', 'utf8', function(err,data) {
   console.log('['+new Date().toISOString()+'] You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
 });
 
-fs.readFile('moblin.js', 'utf8', function(err,data) {
-  if (err) throw err;
-  hyrule.moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
-  console.log('['+new Date().toISOString()+'] Moblin MD5: '+hyrule.moblin.md5);
-});
+hyrule.moblin.watcher = fs.watch('moblin.js', generateMoblinMD5);
+hyrule.fairy.watcher = fs.watch('fairy.js', generateFairyMD5);
 
-fs.readFile('fairy.js', 'utf8', function(err,data) {
-  if (err) throw err;
-  hyrule.fairy.md5 = crypto.createHash('md5').update(data).digest('hex');
-  console.log('['+new Date().toISOString()+'] Fairy MD5:  '+hyrule.fairy.md5);
-});
+function generateMoblinMD5(exxnt, filename) {
+  if (exxnt==='rename') {
+    return;
+  }
+  if (exxnt==='change') {
+    console.log('['+new Date().toISOString()+'] moblin.js has been modified.');
+  }
+  fs.readFile('moblin.js', 'utf8', function(err,data) {
+    if (err) throw err;
+    hyrule.moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
+    console.log('['+new Date().toISOString()+'] Moblin MD5: '+hyrule.moblin.md5);
+  });
+}
+
+function generateFairyMD5(exxnt, filename) {
+  if (exxnt==='rename') {
+    return;
+  }
+  if (exxnt==='change') {
+    console.log('['+new Date().toISOString()+'] fairy.js has been modified.');
+  }
+  fs.readFile('fairy.js', 'utf8', function(err,data) {
+    if (err) throw err;
+    hyrule.fairy.md5 = crypto.createHash('md5').update(data).digest('hex');
+    console.log('['+new Date().toISOString()+'] Fairy MD5:  '+hyrule.fairy.md5);
+  });
+}
+
+generateMoblinMD5('launch', null);
+generateFairyMD5('launch', null);
 
 var defaultPause = 50;
-
 var zeldaExpress = express.createServer();
 
 function Client(mac) {
@@ -510,3 +531,17 @@ var zeldaSocket = net.createServer(function serverCreated(c) {
 zeldaSocket.listen(3003, function zeldaSocketListen() {
   console.log('ZeldaSocket is listening on port 3003.');
 });
+
+function handleSocketError(socketException) {
+  switch(socketException.code) {
+    case 'ECONNRESET':
+      console.log('A moblin crashed.');
+      break;
+    case 'ECONNREFUSED':
+      console.log('Try to repro this lol.');
+      break;
+    default:
+      console.log(socketException);
+  }
+}
+
