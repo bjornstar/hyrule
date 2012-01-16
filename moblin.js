@@ -14,7 +14,8 @@ function log(data){
 }
 
 var moblin = hyrule.moblin;
-var zeldaIP = '10.30.0.73';
+var zeldaHost = 'localhost';
+var zeldaPort = 3003;
 var intInc = 0;
 
 if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
@@ -23,23 +24,27 @@ if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
   moblin.name = generateObjectId();
 }
 
-process.on('message', function parentMessage(m) {
-  handleParentMessage(m);
+process.on('message', handleParentMessage);
+
+process.on('exit', function processOnExit(code) {
+  if (process.send) {
+    process.send({moblin:'I died.', code:code});
+  }
 });
 
 function handleParentMessage(m) {
   switch(m.fairy) {
     case 'Hold on a sec.':
-      clearInterval(moblin.httpHeartBeatInterval);
-      clearInterval(moblin.socketHeartBeatInterval);
+      //clearInterval(moblin.httpHeartBeatInterval);
+      clearInterval(mobSockWriteInterval);
       clearInterval(moblin.EKGInterval);
       break;
     case 'Goodbye.':
       process.exit();
       break;
     case 'OK, keep going.':
-      moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate);
-      moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
+      //moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate);
+      mobSockWriteInterval = setInterval(mobSockWrite, moblin.heartRate);
       moblin.EKGInterval = setInterval(moblinEKG, moblin.EKGRate);
       break;
     default:
@@ -75,23 +80,9 @@ log('Welcome to Hyrule.');
 log('I dub thee moblin_'+moblin.name+'.');
 
 var zeldaTask = {
-  host: zeldaIP,
+  host: zeldaHost,
   method: 'GET',
   path: '/moblin/'+moblin.name+'/task',
-  port: 3000
-};
-
-var zeldaVersion = {
-  host: zeldaIP,
-  method: 'GET',
-  path: '/version',
-  port: 3000
-};
-
-var zeldaDownload = {
-  host: zeldaIP,
-  method: 'GET',
-  path: '/moblin.js',
   port: 3000
 };
 
@@ -111,6 +102,13 @@ function handleSocketError(socketException) {
         setHeartRate(moblin.heartRateDisconnected);
       }
       break;
+    case 'EADDRNOTAVAIL':
+      log('Gotta reset the socket.');
+      if (moblin.umbilicalCord) {
+        moblin.umbilicalCord = false;
+        setHeartRate(moblin.heartRateDisconnected);
+      }
+      break;
     default:
       log(socketException);
   }
@@ -125,8 +123,9 @@ moblin.beatCount = 0;
 moblin.eatCount = 0;
 moblin.prevBeatCount = 0;
 moblin.prevEatCount = 0;
-moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate);
-moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
+moblin.prevBytesRead = 0;
+moblin.prevBytesWritten = 0;
+//moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate);
 moblin.EKGInterval = setInterval(moblinEKG, moblin.EKGRate);
 
 function moblinEKG () {
@@ -143,6 +142,9 @@ function moblinEKG () {
   if (!heartOK && !moblin.EKGFreePass) {
     log('Irregular Heartbeat! '+Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))+' '+Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount)));
   }
+  log(((mobSock.bytesRead-moblin.prevBytesRead)/(moblin.EKGRate/1000))+' '+((mobSock.bytesWritten-moblin.prevBytesWritten)/(moblin.EKGRate/1000)));
+  moblin.prevBytesRead = mobSock.bytesRead;
+  moblin.prevBytesWritten = mobSock.bytesWritten;
   moblin.prevBeatCount = moblin.beatCount;
   moblin.prevEatCount = moblin.eatCount;
   moblin.EKGFreePass = false;
@@ -157,10 +159,10 @@ function setHeartRate(newRate) {
 
   var oldRate = moblin.heartRate;
   moblin.heartRate = newRate;
-  clearInterval(moblin.httpHeartBeatInterval);
-  clearInterval(moblin.socketHeartBeatInterval);
-  moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate+4990);
-  moblin.socketHeartBeatInterval = setInterval(moblinSocketHeartBeat, moblin.heartRate);
+//  clearInterval(moblin.httpHeartBeatInterval);
+  clearInterval(mobSockWriteInterval);
+//  moblin.httpHeartBeatInterval = setInterval(moblinHttpHeartBeat, moblin.heartRate+4990);
+  mobSockWriteInterval = setInterval(mobSockWrite, moblin.heartRate);
   moblin.EKGFreePass = true;
 }
 
@@ -170,7 +172,9 @@ function moblinHttpHeartBeat () {
   var taskData = ''
   var taskStart = new Date();
 
-  var taskRequest = http.request(zeldaTask, function(res) {
+  var taskRequest = http.get(zeldaTask, function(res) {
+    taskRequest.on('error', handleSocketError);
+
     res.setEncoding('utf8');
     res.on('data', function resTaskData(data) {
       taskData += data;
@@ -182,12 +186,6 @@ function moblinHttpHeartBeat () {
       log(error);
     });
   });
-
-  taskRequest.on('error', function taskRequestError(socketException) {
-    handleSocketError(socketException);
-  });
-
-  taskRequest.end();
 }
 
 function digestTask(chunk, taskStart) {
@@ -243,52 +241,89 @@ pingy.on('exit', function (code) {
   console.log('pingy exited with code ' + code);
 });*/
 
-var moblinSocket = new net.Socket();
+var mobSock;
+var mobSockWriteInterval;
+var mobSockConnectInterval;
+var mobSockID = 0;
+var mobSockData = '';
 
-moblinSocket.connect(3003, zeldaIP, function moblinSocketConnect() {
-  moblinSocket.on('error', handleSocketError);
-  moblinSocket.setEncoding('utf8');
-  moblinSocket.setNoDelay(true);
+mobSockCreate();
 
-  var moblinData = '';
-  moblinSocket.on('data', function moblinSocketData(data) {
-    moblinData += data;
-    moblin.umbilicalCord = true;
-    if (moblinData.lastIndexOf(String.fromCharCode(3))!=moblinData.length-1) {
-      return;
-    }
-var dataStart = new Date();
-    var chunks = moblinData.split(String.fromCharCode(3));
-    for (chunk in chunks) {
-      if (chunks[chunk].length==0) {
-        continue;
-      }
-      digestTask(chunks[chunk], dataStart);
-    }
-    moblinData = '';
-  });
+function mobSockCreate() {
+  if (mobSock&&mobSock.readyState=='opening') {
+    return;
+  } else if (mobSock) {
+    log(mobSock.readyState);
+  }
+  
+  mobSock = new net.Socket();
+  mobSock.id = mobSockID++;
+  mobSock.on('close', mobSockOnClose);
+  mobSock.on('data', mobSockOnData);
+  mobSock.on('error', mobSockOnError);
 
-  moblinSocket.on('end', function moblinSocketEnd() {
-    log('Disconnected from Zelda.');
-  });
+  mobSock.connect(zeldaPort, zeldaHost, mobSockOnConnect);
+  log('Created mobSock'+mobSock.id+'.');
+}
 
-  moblinSocket.on('close', function moblinSocketClose(had_error) {
-    //log('socket closed. had_error='+had_error);
-  });
-});
+function mobSockOnClose(had_error) {
+  log('mobSock'+mobSock.id+' closed.');
+  if (mobSockWriteInterval) {
+    clearInterval(mobSockWriteInterval);
+    mobSockWriteInterval = null;
+  }
+  if (mobSockConnectInterval) {
+    return;
+  }
+  mobSockConnectInterval = setInterval(mobSockCreate, 100);
+}
 
+function mobSockOnConnect() {
+  log('mobSock'+mobSock.id+' connected.');
+  if (mobSockConnectInterval) {
+    clearInterval(mobSockConnectInterval);
+    mobSockConnectInterval = null;
+  }
+  if (mobSockWriteInterval) {
+    return;
+  }
+  mobSockWriteInterval = setInterval(mobSockWrite, 10);
+}
 
-function moblinSocketHeartBeat() {
+function mobSockOnData(data) {
   moblin.beatCount++;
+  mobSockData += data;
+  moblin.umbilicalCord = true;
+  if (mobSockData.lastIndexOf(String.fromCharCode(3))!=mobSockData.length-1) {
+    return;
+  }
+  var dataStart = new Date();
+  var chunks = mobSockData.split(String.fromCharCode(3));
+  for (chunk in chunks) {
+    if (chunks[chunk].length==0) {
+      continue;
+    }
+    digestTask(chunks[chunk], dataStart);
+  }
+  mobSockData = '';
+}
+
+function mobSockOnError(error) {
+  handleSocketError(error);
+}
+
+function mobSockWrite() {
+  if (mobSock.destroyed||mobSock.readyState=='closed') {
+    log('mobSock'+mobSock.id+' is dead.');
+    return;
+  }
 
   var output = JSON.stringify({params:{mac:moblin.name}});
-  if (moblinSocket.destroyed) {
-    moblinSocket.connect();
-    return;
+
+  try {
+    mobSock.write(output);
+    mobSock.write(String.fromCharCode(3));
+  } catch (err) {
+    // Not sure why they want to throw the error, but ok.
   }
-  if (moblinSocket.bufferSize>0) {
-    return;
-  }
-  moblinSocket.write(output);
-  moblinSocket.write(String.fromCharCode(3));
 }

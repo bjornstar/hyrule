@@ -36,6 +36,10 @@ function generateMoblinMD5(exxnt, filename) {
   if (exxnt==='rename') {
     return;
   }
+  if (hyrule.moblin.md5inprogress) {
+    return;
+  }
+  hyrule.fairy.md5inprogress = true;
   if (exxnt==='change') {
     console.log('['+new Date().toISOString()+'] moblin.js has been modified.');
   }
@@ -43,6 +47,7 @@ function generateMoblinMD5(exxnt, filename) {
     if (err) throw err;
     hyrule.moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
     console.log('['+new Date().toISOString()+'] Moblin MD5: '+hyrule.moblin.md5);
+    delete hyrule.moblin.md5inprogress;
   });
 }
 
@@ -50,6 +55,10 @@ function generateFairyMD5(exxnt, filename) {
   if (exxnt==='rename') {
     return;
   }
+  if (hyrule.fairy.md5inprogress) {
+    return;
+  }
+  hyrule.fairy.md5inprogress = true;
   if (exxnt==='change') {
     console.log('['+new Date().toISOString()+'] fairy.js has been modified.');
   }
@@ -57,6 +66,7 @@ function generateFairyMD5(exxnt, filename) {
     if (err) throw err;
     hyrule.fairy.md5 = crypto.createHash('md5').update(data).digest('hex');
     console.log('['+new Date().toISOString()+'] Fairy MD5:  '+hyrule.fairy.md5);
+    delete hyrule.fairy.md5inprogress;
   });
 }
 
@@ -443,92 +453,117 @@ zeldaExpress.listen(3000);
 //  This is socket stuff, it's fast (on linux).
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
-var zeldaSocket = net.createServer(function serverCreated(c) {
-  c.setEncoding('utf8');
-  c.setNoDelay(true);
+var zelSockID = 0;
 
-  c.on('end', function() {
-    console.log('Moblin disconnected.');
-  });
+var zelServer = net.createServer(zelOnCreate);
 
-  c.on('error', function zeldaSocketError(socketException) {
-    handleSocketError(socketException);
-  });
+function zelOnCreate(zelSock) {
+  zelSock.setEncoding('utf8');
+  zelSock.setNoDelay(true);
+  zelSock.id = zelSockID++;
+  zelSock.data = '';
 
-  var zeldaData = '';
-  c.on('data', function zeldaSocketData(data) {
-    zeldaData+=data;
+  zelSock.on('data', zelSockOnData);  
+  zelSock.on('end', zelSockOnEnd);
+  zelSock.on('error', zelSockOnError);
+}
 
-    if (zeldaData.lastIndexOf(String.fromCharCode(3))!=zeldaData.length-1) {
-      return;
+function zelSockOnData(data) {
+  this.data+=data;
+
+  if (this.data.lastIndexOf(String.fromCharCode(3))!=this.data.length-1) {
+    return;
+  }
+  
+  var prevChunk = '';
+  var chunks = this.data.split(String.fromCharCode(3));
+  
+  for (chunk in chunks) {
+    if (chunks[chunk].length==0) {
+      continue;
     }
+    
+    if (chunks[chunk]==prevChunk) {
+      //continue;
+    }
+    
+    prevChunk = chunks[chunk];
+    
+    var moblinData = JSON.parse(chunks[chunk]);
 
-    var prevChunk = '';
-    var chunks = zeldaData.split(String.fromCharCode(3));
+    this.send = responseObjectSend;
+    this.json = responseObjectJSON;
+    
+    var reqTime = new Date();
 
-    for (chunk in chunks) {
-      if (chunks[chunk].length==0) {
-        continue;
-      }
-      if (chunks[chunk]==prevChunk) {
-//        continue;
-      }
-
-      prevChunk = chunks[chunk];
-
-      var moblinData = JSON.parse(chunks[chunk]);
-
-      var responseObject = new Object();
-      responseObject.send = function(out) {
-        if (c.destroyed) {
-          return;
-        }
-        c.write(out);
-        c.write(String.fromCharCode(3));
-      }
-      responseObject.json = function(out) {
-        var output = JSON.stringify(out)
-        if (c.destroyed) {
-          return;
-        }
-        c.write(output);
-        c.write(String.fromCharCode(3));
-      }
-
-      var reqTime = new Date();
-
-      if (inProgress[moblinData.params.mac]) {
-        inProgress[moblinData.params.mac]++;
-        if (inProgress[moblinData.params.mac] >= 3) {
-          lastOverRun = new Date();
-        }
-        if (inProgress[moblinData.params.mac] >= 10) {
-          console.log('THE BRAKES!');
-          console.log(inProgress);
-          defaultPause +=5;
-          inProgress[moblinData.params.mac] = 1;
-        }
-        responseObject.json({task:{pause:defaultPause}});
-        return;
-      }
-
-      if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
+    if (inProgress[moblinData.params.mac]) {
+      inProgress[moblinData.params.mac]++;
+      if (inProgress[moblinData.params.mac] >= 3) {
         lastOverRun = new Date();
-        defaultPause-=5;
       }
+      if (inProgress[moblinData.params.mac] >= 10) {
+        console.log('THE BRAKES!');
+        console.log(inProgress);
+        defaultPause +=5;
+        inProgress[moblinData.params.mac] = 1;
+      }
+      this.json({task:{pause:defaultPause}});
+    } else {
 
-      inProgress[moblinData.params.mac] = new Object();
-      inProgress[moblinData.params.mac] = 1;
-
-      var zCurrent = new Client(moblinData.params.mac);
-      zCurrent.task(moblinData,responseObject);
+    if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
+      lastOverRun = new Date();
+      defaultPause-=5;
     }
-    zeldaData = '';
-    prevChunk = '';
-  });
-});
 
-zeldaSocket.listen(3003, function zeldaSocketListen() {
+    inProgress[moblinData.params.mac] = new Object();
+    inProgress[moblinData.params.mac] = 1;
+
+    var zCurrent = new Client(moblinData.params.mac);
+    zCurrent.task(moblinData,this);
+
+    }
+  }
+  this.data = '';
+  prevChunk = '';
+}  
+    
+function responseObjectSend(out) {
+  if (this.destroyed||this.readyState=='closed') {
+    console.log('zelSock'+this.id+' is dead.');
+    return;
+  }
+  
+  try {
+    this.write(out);
+    this.write(String.fromCharCode(3));
+  } catch (err) {
+    //Socket closed.
+  }
+}
+
+function responseObjectJSON(out) {
+  var output = JSON.stringify(out)
+  if (this.destroyed||this.readyState=='closed') {
+    console.log('zelSock'+this.id+' is dead.');
+    return;
+  }
+  try {
+    this.write(output);
+    this.write(String.fromCharCode(3));
+  } catch (err) {
+    // Our socket closed.
+  }
+}
+
+function zelSockOnEnd() {
+  console.log('A moblin disconnected.');
+}
+
+function zelSockOnError(socketException) {
+  handleSocketError(socketException);
+}
+
+zelServer.listen(3003, function zeldaSocketListen() {
   console.log('ZeldaSocket is listening on port 3003.');
 });
 
@@ -544,4 +579,3 @@ function handleSocketError(socketException) {
       console.log(socketException);
   }
 }
-

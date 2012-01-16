@@ -19,38 +19,40 @@ fs.readFile('fairy.js', 'utf8', function(err, data) {
   console.log('['+new Date().toISOString()+'] Fairy MD5:  '+fairy.md5);
 });
 
-fs.readFile('moblin.js', 'utf8', function(err, data) {
-  if (err) {
-    console.log('['+new Date().toISOString()+'] Cannot find moblin.js, will download from Zelda.');
-    hyrule.moblins.push({md5:''});
-    return;
-  }
-  var moblinMD5 = crypto.createHash('md5').update(data).digest('hex');
-  console.log('['+new Date().toISOString()+'] Moblin MD5: '+moblinMD5);
+function launchMoblin() {
+  fs.readFile('moblin.js', 'utf8', function(err, data) {
+    if (err) {
+      console.log('['+new Date().toISOString()+'] Cannot find moblin.js, will download from Zelda.');
+      hyrule.moblins.push({md5:''});
+      return;
+    }
+    var moblinMD5 = crypto.createHash('md5').update(data).digest('hex');
+    console.log('['+new Date().toISOString()+'] Moblin MD5: '+moblinMD5);
 
-  hyrule.moblins.push(fork('moblin.js')); // This doesn't launch moblin until the file is read and MD5 is performed.
+    hyrule.moblins.push(fork('moblin.js')); // This doesn't launch moblin until the file is read and MD5 is performed.
 
-  process.on('exit', function () {
-   hyrule.moblins[0].send({fairy:'Goodbye.'});
+    process.on('exit', function () {
+     hyrule.moblins[0].send({fairy:'Goodbye.'});
+    });
+
+    hyrule.moblins[0].md5 = moblinMD5;
+    hyrule.moblins[0].on('message', function moblinMessage(m) {
+      handleMoblinMessage(m);
+    });
   });
+}
 
-  hyrule.moblins[0].md5 = moblinMD5;
-  hyrule.moblins[0].on('message', function moblinMessage(m) {
-    handleMoblinMessage(m);
-  });
-});
-
-hyrule.zeldaIP = '10.30.0.73';
+hyrule.zeldaHost = 'localhost';
 
 hyrule.zeldaDownload = {
-  host: hyrule.zeldaIP,
+  host: hyrule.zeldaHost,
   method: 'GET',
   path: '/moblin.js',
   port: 3000
 };
 
 hyrule.zeldaVersion = {
-  host: hyrule.zeldaIP,
+  host: hyrule.zeldaHost,
   method: 'GET',
   path: '/version',
   port: 3000
@@ -69,6 +71,7 @@ function moblinVersionCheck () {
   var versionData='';
 
   var versionRequest = http.request(hyrule.zeldaVersion, function(res) {
+    versionRequest.once('error', handleSocketError);
     res.setEncoding('utf8');
     res.on('data', function resVersionData(data) {
       versionData += data;
@@ -81,10 +84,7 @@ function moblinVersionCheck () {
     });
   });
 
-  versionRequest.on('error', function versionRequestError(socketException) {
-    handleRequestError(socketException);
-  });
-
+  versionRequest.once('error', handleSocketError);
   versionRequest.end();
 }
 
@@ -159,17 +159,25 @@ function handleDownloadFinished(data) {
     fairy.umbilicalCord = true;
   }
 
+  clearInterval(fairy.versionCheckInterval);
+  delete fairy.versionCheckInterval;
+
   fs.readFile('newmoblin.js', 'utf8', function verifyNewMoblin(err, data) {
-    if (err) throw err;
+    if (err) {
+      console.log('['+new Date().toISOString()+'] Problem reading newmoblin.js, trying again.');
+      if (!fairy.timeoutDownload) {
+        fairy.timeoutDownload = setTimeout(moblinDownload, 1000);
+        return;
+      }
+    }
     var newMoblinMD5 = crypto.createHash('md5').update(data).digest('hex');
     if (newMoblinMD5 != hyrule.remoteMD5) {
-      console.log('['+new Date().toISOString()+'] Problem with download, try again.');
-      fairy.timeoutDownload = setTimeout(moblinDownload, 1000);
-      return;
+      console.log('['+new Date().toISOString()+'] Problem with download, trying again.');
+      if (!fairy.timeoutDownload) {
+        fairy.timeoutDownload = setTimeout(moblinDownload, 1000);
+        return;
+      }
     }
-
-
-    clearInterval(fairy.versionCheckInterval);
 
     // Probably should do something to make sure we don't fork bomb.
 
@@ -184,7 +192,7 @@ function handleDownloadFinished(data) {
       handleMoblinMessage(m);
     });
     fairy.timeoutStartup = setTimeout(failedMoblinStartup, 1000); // This is probably bad too.
-    fairy.timeoutDownload = null;
+    delete fairy.timeoutDownload;
   });
 }
 
@@ -201,24 +209,41 @@ function handleMoblinMessage(m) {
 
           fairy.versionCheckInterval = setInterval(moblinVersionCheck, fairy.versionCheckRate);
           clearTimeout(fairy.timeoutStartup);
+          delete fairy.timeoutStartup;
         });
       }
       break;
     default:
-      console.log(m.moblin);
+      console.log(m);
   }
 }
 
+function areMoblinsAlive() {
+  for (intMoblin in hyrule.moblins) {
+    var moblinC = hyrule.moblins[intMoblin];
+    if (!moblinC.exitCode) {
+      return;
+    }
+    if (fairy.timeoutDownload||fairy.timeoutStartup) {
+      return;
+    }
+  }
+  var deadMoblin = hyrule.moblins.shift();
+  launchMoblin();
+}
+
+areMoblinsAlive();
+hyrule.areMoblinsAliveInterval = setInterval(areMoblinsAlive,5000);
+
 function failedMoblinStartup() {
   console.log('New Moblin failed to start up.');
-  console.log(hyrule.moblins);
   if (hyrule.moblins[0].stdin && !hyrule.moblins[0].stdin.destroyed) {
     hyrule.moblins[0].send({fairy: 'OK, keep going.'});
   }
   fairy.versionCheckInterval = setInterval(moblinVersionCheck, fairy.versionCheckRate);
 }
 
-function handleRequestError(socketException) {
+function handleSocketError(socketException) {
   switch(socketException.code) {
     case 'ECONNRESET':
       if (fairy.umbilicalCord||fairy.umbilicalCord===undefined) {
