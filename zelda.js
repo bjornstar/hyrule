@@ -1,36 +1,45 @@
-var mongodb = require('mongodb');
-var express = require('express');
-var fs      = require('fs');
-var crypto  = require('crypto');
-var net     = require('net');
+var mongodb = require('mongodb'); // 3rd party node package. We use it for database
+var express = require('express'); // 3rd party node package. We use it for web interface
+var fs      = require('fs');      //    Native node package. We use it to read/write files
+var crypto  = require('crypto');  //    Native node package. We use it for md5
+var net     = require('net');     //    Native node package. We use it for socket interface
+var util    = require('util');    //    Native node package. We use it for logging
 
-var ObjectID = mongodb.ObjectID;
+var config  = require('./config/default.json'); // This holds all of our configuration data.
 
-var serverHyrule = new mongodb.Server('localhost', 27017);
-var dbHyrule = new mongodb.Db('hyrule', serverHyrule, {});
+var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
 
-var timeBoot = new Date();
+var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
+var dbHyrule = new mongodb.Db(config.hyrule.database, serverHyrule, {}); // This is our database
 
-var hyrule = new Object();
+var timeBoot = new Date(); // So we know when this process started
+
+var hyrule = new Object(); 
 hyrule.appName = 'Zelda';
 hyrule.moblin = new Object();
 hyrule.fairy = new Object();
 
+function log(data) {
+  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
+}
+
 dbHyrule.open(function() {
-  console.log('['+new Date().toISOString()+'] Welcome to Hyrule.');
+  log('Welcome to Hyrule.');
   var timeDBOpen = new Date();
-  console.log('['+new Date().toISOString()+'] It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
+  log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
 
 fs.readFile('package.json', 'utf8', function(err,data) {
   if (err) throw err;
   var jsonPackage = JSON.parse(data);
   hyrule.version = jsonPackage.version;
-  console.log('['+new Date().toISOString()+'] You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
+  log('You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
 });
 
 hyrule.moblin.watcher = fs.watch('moblin.js', generateMoblinMD5);
 hyrule.fairy.watcher = fs.watch('fairy.js', generateFairyMD5);
+
+var newmoblin = '';
 
 function generateMoblinMD5(exxnt, filename) {
   if (exxnt==='rename') {
@@ -41,12 +50,13 @@ function generateMoblinMD5(exxnt, filename) {
   }
   hyrule.fairy.md5inprogress = true;
   if (exxnt==='change') {
-    console.log('['+new Date().toISOString()+'] moblin.js has been modified.');
+    log('moblin.js has been modified.');
   }
   fs.readFile('moblin.js', 'utf8', function(err,data) {
     if (err) throw err;
-    hyrule.moblin.md5 = crypto.createHash('md5').update(data).digest('hex');
-    console.log('['+new Date().toISOString()+'] Moblin MD5: '+hyrule.moblin.md5);
+    newmoblin = 'var config = new Object();\n\nconfig.moblin = '+JSON.stringify(config.moblin)+';\n\n'+data;
+    hyrule.moblin.md5 = crypto.createHash('md5').update(newmoblin).digest('hex');
+    log('Moblin MD5: '+hyrule.moblin.md5);
     delete hyrule.moblin.md5inprogress;
   });
 }
@@ -60,12 +70,12 @@ function generateFairyMD5(exxnt, filename) {
   }
   hyrule.fairy.md5inprogress = true;
   if (exxnt==='change') {
-    console.log('['+new Date().toISOString()+'] fairy.js has been modified.');
+    log('fairy.js has been modified.');
   }
   fs.readFile('fairy.js', 'utf8', function(err,data) {
     if (err) throw err;
     hyrule.fairy.md5 = crypto.createHash('md5').update(data).digest('hex');
-    console.log('['+new Date().toISOString()+'] Fairy MD5:  '+hyrule.fairy.md5);
+    log(' Fairy MD5: '+hyrule.fairy.md5);
     delete hyrule.fairy.md5inprogress;
   });
 }
@@ -93,7 +103,7 @@ function Client(mac) {
 	this.taskOut = {task:{pause:defaultPause}}; //,_id:new ObjectID(),created:new Date()}; // This is the default task.
 
 	this.appendError = function(errorObject) {
-		console.log(errorObject);
+		log(errorObject);
 		if (!self.taskOut.errors||self.taskOut.errors.length==0) {
 			self.taskOut.errors = new Array();
 		}
@@ -207,9 +217,9 @@ function Client(mac) {
 		if (tStart != self.taskOut) {
 			cMachine.update(self.findObject,updateObject,function(errSave) { // Yay for atomic operations.
 				if (errSave) {
-					console.log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
+					log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
 				} else {
-				//	console.log('updated: ' + JSON.stringify(tStart) + ' ' + self.start.getTime() + ' ' + now.getTime());
+				//	log('updated: ' + JSON.stringify(tStart) + ' ' + self.start.getTime() + ' ' + now.getTime());
 				}
 			});
 		}
@@ -218,7 +228,7 @@ function Client(mac) {
 		delete inProgress[self.req.params.mac];
 
 		self.end = new Date();
-//		console.log(self.end - self.start);
+//		log(self.end - self.start);
 	}
 
 	function passThang(collectionMachine) {
@@ -249,7 +259,7 @@ function Client(mac) {
 
 				if (!jPass.tasks[task].started) {
 var now = new Date();
-console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.getTime() + ' ' + now.getTime());
+log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.getTime() + ' ' + now.getTime());
 					break;
 				}
 
@@ -329,14 +339,14 @@ console.log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.
 						}
 					});
 				} else {
-					console.log('no tasks to pass.');
+					log('no tasks to pass.');
 					self.res.send('no tasks to pass.');
 				}
 			} else if (self.machine.jobs[0].locked) {
-				console.log('job is locked!');
+				log('job is locked!');
 				self.res.send('locked.');
 			} else {
-				console.log('no jobs to pass.');
+				log('no jobs to pass.');
 				self.res.send('no jobs to pass.');
 			}
 		});
@@ -389,8 +399,8 @@ zeldaExpress.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/
 			lastOverRun = new Date();
 		}
 		if (inProgress[req.params.mac] >= 10) {
-			console.log('THE BRAKES!');
-			console.log(inProgress);
+			log('THE BRAKES!');
+			log(inProgress);
 			defaultPause +=5;
 			inProgress[req.params.mac] = 1;
 		}
@@ -424,8 +434,8 @@ zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})
 		overRun++;
 		return;
 	}
-	console.log('got a fail');
-	console.log(req.params.taskid);
+	log('got a fail');
+	log(req.params.taskid);
 	var zCurrent = new Client(req.params.mac);
 	zCurrent.fail(req, res);
 });
@@ -435,7 +445,7 @@ zeldaExpress.get('/version', function(req,res) {
 });
 
 zeldaExpress.get('/moblin.js', function(req,res) {
-  res.sendfile('moblin.js');
+  res.send(newmoblin);
 });
 
 zeldaExpress.get('/fairy.js', function(req,res) {
@@ -502,8 +512,8 @@ function zelSockOnData(data) {
         lastOverRun = new Date();
       }
       if (inProgress[moblinData.params.mac] >= 10) {
-        console.log('THE BRAKES!');
-        console.log(inProgress);
+        log('THE BRAKES!');
+        log(inProgress);
         defaultPause +=5;
         inProgress[moblinData.params.mac] = 1;
       }
@@ -529,7 +539,7 @@ function zelSockOnData(data) {
     
 function responseObjectSend(out) {
   if (this.destroyed||this.readyState=='closed') {
-    console.log('zelSock'+this.id+' is dead.');
+    log('zelSock'+this.id+' is dead.');
     return;
   }
   
@@ -544,7 +554,7 @@ function responseObjectSend(out) {
 function responseObjectJSON(out) {
   var output = JSON.stringify(out)
   if (this.destroyed||this.readyState=='closed') {
-    console.log('zelSock'+this.id+' is dead.');
+    log('zelSock'+this.id+' is dead.');
     return;
   }
   try {
@@ -556,7 +566,7 @@ function responseObjectJSON(out) {
 }
 
 function zelSockOnEnd() {
-  console.log('A moblin disconnected.');
+  log('A moblin disconnected.');
 }
 
 function zelSockOnError(socketException) {
@@ -564,18 +574,18 @@ function zelSockOnError(socketException) {
 }
 
 zelServer.listen(3003, function zeldaSocketListen() {
-  console.log('ZeldaSocket is listening on port 3003.');
+  log('ZeldaSocket is listening on port 3003.');
 });
 
 function handleSocketError(socketException) {
   switch(socketException.code) {
     case 'ECONNRESET':
-      console.log('A moblin crashed.');
+      log('A moblin crashed.');
       break;
     case 'ECONNREFUSED':
-      console.log('Try to repro this lol.');
+      log('Try to repro this lol.');
       break;
     default:
-      console.log(socketException);
+      log(socketException);
   }
 }

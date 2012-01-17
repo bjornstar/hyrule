@@ -1,0 +1,40 @@
+{ 
+  "hyrule": {
+    "database": "hyrule",
+    "host": "localhost",
+    "port": 27017
+  },
+  "zelda": {
+    "http": {
+      "host": "localhoost",
+      "port": 3000
+    },
+    "socket": {
+      "host": "localhost",
+      "port": 3003
+    }
+  },
+  "link": {
+    "http": {
+      "host": "localhost",
+      "port": 3001
+    }
+  },
+  "ganon": {},
+  "moblin": {
+    "http": {
+      "host": "localhost",
+      "port": 3000
+    },
+    "socket": {
+      "host": "localhost",
+      "port": 3003
+    }
+  },
+  "fairy": {
+    "http": {
+      "host": "localhost",
+      "port": 3000
+    }
+  }
+}
