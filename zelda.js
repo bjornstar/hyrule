@@ -54,7 +54,7 @@ function generateMoblinMD5(exxnt, filename) {
   }
   fs.readFile('moblin.js', 'utf8', function(err,data) {
     if (err) throw err;
-    newmoblin = 'var config = new Object();\n\nconfig.moblin = '+JSON.stringify(config.moblin)+';\n\n'+data;
+    newmoblin = 'var config = new Object();\n\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.moblin.md5 = crypto.createHash('md5').update(newmoblin).digest('hex');
     log('Moblin MD5: '+hyrule.moblin.md5);
     delete hyrule.moblin.md5inprogress;

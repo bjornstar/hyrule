@@ -5,10 +5,13 @@ var os     = require("os");
 var spawn  = require("child_process").spawn;
 var util   = require("util");
 
+process.on("message", handleParentMessage);
+process.on("exit", handleProcessOnExit);
+
 var defaultConfig = new Object();
-defaultConfig.moblin = new Object();
-defaultConfig.moblin.http = {host:"localhost", port:3000};
-defaultConfig.moblin.socket = {host:"localhost", port:3003};
+defaultConfig.zelda = new Object();
+defaultConfig.zelda.http = {host:"localhost", port:3000};
+defaultConfig.zelda.socket = {host:"localhost", port:3003};
 
 // Here's how this works, your copy of moblin should have been downloaded from Zelda.
 // It should be tailored specifically for the Zelda that you got it from.
@@ -35,9 +38,6 @@ if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
 } else {
   moblin.name = generateObjectId();
 }
-
-process.on("message", handleParentMessage);
-process.on("exit", handleProcessOnExit);
 
 function handleProcessOnExit(code) {
   if (this.send) {
@@ -93,10 +93,10 @@ log("Welcome to Hyrule.");
 log("I dub thee moblin_"+moblin.name+".");
 
 var zeldaTask = {
-  host: config.moblin.http.host,
+  host: config.zelda.http.host,
   method: "GET",
   path: "/moblin/"+moblin.name+"/task",
-  port: config.moblin.http.port
+  port: config.zelda.http.port
 };
 
 function handleSocketError(socketException) {
@@ -188,8 +188,6 @@ function moblinHttpHeartBeat () {
   var taskStart = new Date();
 
   var taskRequest = http.get(zeldaTask, function(res) {
-    taskRequest.on("error", handleSocketError);
-
     res.setEncoding("utf8");
     res.on("data", function resTaskData(data) {
       taskData += data;
@@ -201,6 +199,8 @@ function moblinHttpHeartBeat () {
       log(error);
     });
   });
+
+  taskRequest.on("error", handleSocketError);
 }
 
 function digestTask(chunk, taskStart) {
@@ -268,7 +268,7 @@ function mobSockCreate() {
   if (mobSock&&mobSock.readyState=="opening") {
     return;
   } else if (mobSock) {
-    log(mobSock.readyState);
+    //log(mobSock.readyState);
   }
   
   mobSock = new net.Socket();
@@ -277,7 +277,7 @@ function mobSockCreate() {
   mobSock.on("data", mobSockOnData);
   mobSock.on("error", mobSockOnError);
 
-  mobSock.connect(config.moblin.socket.port, config.moblin.socket.host, mobSockOnConnect);
+  mobSock.connect(config.zelda.socket.port, config.zelda.socket.host, mobSockOnConnect);
   log("Created mobSock"+mobSock.id+".");
 }
 
