@@ -33,11 +33,11 @@ function log(data){
 var moblin = hyrule.moblin;
 var intInc = 0; // This is for creating ObjectIDs.
 
-if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
-  moblin.name = os.hostname();
-} else {
+//if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
+//  moblin.name = os.hostname();
+//} else {
   moblin.name = generateObjectId();
-}
+//}
 
 function handleProcessOnExit(code) {
   if (this.send) {
@@ -206,12 +206,15 @@ function moblinHttpHeartBeat () {
 function digestTask(chunk, taskStart) {
   moblin.eatCount++;
 
-  if (chunk.length>21) {
-    log("invalid json "+chunk);
+  var tastyBits = new Object();
+
+  try {
+    tastyBits = JSON.parse(chunk);
+  } catch (err) {
+    log(err);
     return;
   }
 
-  var tastyBits = JSON.parse(chunk);
   var task = tastyBits.task;
 
   if (!moblin.umbilicalCord) {
@@ -339,6 +342,6 @@ function mobSockWrite() {
     mobSock.write(output);
     mobSock.write(String.fromCharCode(3));
   } catch (err) {
-    // Not sure why they want to throw the error, but ok.
+    console.log(err);
   }
 }

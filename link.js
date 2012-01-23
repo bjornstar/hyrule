@@ -10,10 +10,9 @@ var ObjectID = mongodb.ObjectID;
 var serverHorcrux = new mongodb.Server(config.hyrule.host, config.hyrule.port);
 var dbHyrule = new mongodb.Db(config.hyrule.database, serverHorcrux, {});
 
-var timeBoot = new Date();
-
 var hyrule = new Object();
 hyrule.appName = 'Link';
+hyrule.appStart = new Date();
 
 function log(data) {
   console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
@@ -22,7 +21,7 @@ function log(data) {
 dbHyrule.open(function() {
   log('Welcome to Hyrule.');
   var timeDBOpen = new Date();
-  log('It took ' + (timeDBOpen.getTime() - timeBoot.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
+  log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
 
 log('Hello, my name is ' + hyrule.appName + '!');
@@ -34,7 +33,7 @@ io.set('log level', 1);
 
 link.listen(config.link.http.port);
 
-var defaultFrequency = 100;
+var defaultFrequency = 500; 
 var socketClients = new Object();
 
 io.sockets.on('connection', socketsOnConnection);
@@ -60,7 +59,7 @@ function socketOnDashStart() {
   log('Client '+this.id+' requested dashstart.');
   socketClients[this.id].prevTimesseen = 0;
   socketClients[this.id].frequency = defaultFrequency;
-  socketClients[this.id].socketInterval = setInterval(dashPush, 100, this);
+  socketClients[this.id].socketInterval = setInterval(dashPush, defaultFrequency, this);
 }
 
 function dashPush(dSocket) {
@@ -69,18 +68,23 @@ function dashPush(dSocket) {
       if (!socketClients[dSocket.id]) {
         return;
       }
+
       var output;
       var totalTimesseen = 0;
+
       for (rMachine in rMachines) {
         var cMachine = rMachines[rMachine];
         totalTimesseen += cMachine.timesseen;
       }
+
       var output = new Object();
-      output.simultaneousUsers = socketClients.length;
+
+      output.dashUsers = socketClients.length;
       output.dashFrequency = socketClients[dSocket.id].frequency;
       output.totalUpdatecount = totalTimesseen;
       output.deltaUpdatecount = totalTimesseen - socketClients[dSocket.id].prevTimesseen;
-      output.perclientTime = Math.floor(output.dashFrequency / output.deltaUpdatecount);
+      output.usecPerClient = Math.floor(10*output.dashFrequency / output.deltaUpdatecount);
+      output.updatesPerSecond = Math.floor(output.deltaUpdatecount * 1000 / output.dashFrequency) ;
       dSocket.emit('dash', output);
       socketClients[dSocket.id].prevTimesseen = totalTimesseen;
     });

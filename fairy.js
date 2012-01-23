@@ -113,15 +113,11 @@ function handleVersionCheck(data) {
   var remoteHyrule = JSON.parse(data);
   fairy.prevCheckCount = fairy.checkCount;
   hyrule.remoteMD5 = remoteHyrule.moblin.md5;
-  log("Zelda says she is in Hyrule v"+remoteHyrule.version);
-  log("Remote MD5: "+remoteHyrule.moblin.md5);
 
   var outofdate = false;
  
   for (moblinPID in hyrule.moblins) {
     var checkMoblin = hyrule.moblins[moblinPID];
-
-//    log("Moblin."+moblinPID+" MD5: "+checkMoblin.md5);
 
     if (remoteHyrule.moblin.md5==checkMoblin.md5) {
       continue;
@@ -140,6 +136,8 @@ function handleVersionCheck(data) {
     return;
   }
   fairy.readyState = "downloading";
+  log("Zelda says she is in Hyrule v"+remoteHyrule.version);
+  log("Remote MD5: "+remoteHyrule.moblin.md5);
   log("Downloading new moblin.js");
 
   fairy.timeoutDownload = setTimeout(moblinDownload, 50);
@@ -302,12 +300,6 @@ function areMoblinsAlive() {
     }
     liveMoblins.push(moblinPID);
   }
-//  log('dead:');
-//  log(deadMoblins);
-//  log('live:');
-//  log(liveMoblins);
-//  log('old:');
-//  log(oldMoblins);
   if (liveMoblins.length<parallelMoblins) {
     launchMoblin();
   }
