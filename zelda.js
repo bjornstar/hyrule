@@ -88,9 +88,9 @@ fs.readFile('./package.json', 'utf8', function(err,data) {
   log('You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
 });
 
-hyrule.config.watcher = fs.watchFile(configFile, configWatchEvent);
-hyrule.moblin.watcher = fs.watchFile('./moblin.js', generateMoblinMD5);
-hyrule.fairy.watcher = fs.watchFile('./fairy.js', generateFairyMD5);
+hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
+hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
+hyrule.fairy.watcher = fs.watch('./fairy.js', generateFairyMD5);
 
 var newmoblin = '';
 var newfairy = '';
