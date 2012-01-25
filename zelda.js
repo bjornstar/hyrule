@@ -35,6 +35,7 @@ var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
 
 var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
 var dbHyrule = new mongodb.Db(config.hyrule.database, serverHyrule, {}); // This is our database
+var cMachines = new mongodb.Collection(dbHyrule, 'machines');
 
 function log(data) {
   console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
@@ -80,7 +81,7 @@ dbHyrule.open(function() {
   log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
 
-fs.readFile('package.json', 'utf8', function(err,data) {
+fs.readFile('./package.json', 'utf8', function(err,data) {
   if (err) throw err;
   var jsonPackage = JSON.parse(data);
   hyrule.version = jsonPackage.version;
@@ -88,8 +89,8 @@ fs.readFile('package.json', 'utf8', function(err,data) {
 });
 
 hyrule.config.watcher = fs.watchFile(configFile, configWatchEvent);
-hyrule.moblin.watcher = fs.watchFile('moblin.js', generateMoblinMD5);
-hyrule.fairy.watcher = fs.watchFile('fairy.js', generateFairyMD5);
+hyrule.moblin.watcher = fs.watchFile('./moblin.js', generateMoblinMD5);
+hyrule.fairy.watcher = fs.watchFile('./fairy.js', generateFairyMD5);
 
 var newmoblin = '';
 var newfairy = '';
@@ -118,7 +119,7 @@ function generateMoblinMD5(exxnt, filename) {
   if (exxnt==='change') {
     log('moblin.js has been modified.');
   }
-  fs.readFile('moblin.js', 'utf8', function(err,data) {
+  fs.readFile('./moblin.js', 'utf8', function(err,data) {
     if (err) throw err;
     newmoblin = 'var config = new Object();\n\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.moblin.md5 = crypto.createHash('md5').update(newmoblin).digest('hex');
@@ -138,7 +139,7 @@ function generateFairyMD5(exxnt, filename) {
   if (exxnt==='change') {
     log('fairy.js has been modified.');
   }
-  fs.readFile('fairy.js', 'utf8', function(err,data) {
+  fs.readFile('./fairy.js', 'utf8', function(err,data) {
     if (err) throw err;
     newfairy = 'var config = new Object();\n\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.fairy.md5 = crypto.createHash('md5').update(newfairy).digest('hex');
@@ -154,86 +155,73 @@ var defaultPause = 50;
 var zeldaExpress = express.createServer();
 
 function Client(mac) {
-	var self = this; //You have to do this so you can reference these things later.
-	var machine;
-	var start = new Date();
+  var self = this; //You have to do this so you can reference these things later.
+  var machine;
+  var start = new Date();
 
-	this.mac = mac.toLowerCase();
-	var findObject = new Object();
+  this.mac = mac.toLowerCase();
+  var findObject = new Object();
 
-	if (self.mac.length==12) {
-		self.findObject = {mac:self.mac};
-	} else if (self.mac.length==24) {
-		self.findObject = {_id:new ObjectID(self.mac)};
-	}
+  if (self.mac.length==12) {
+    self.findObject = {mac:self.mac};
+  } else if (self.mac.length==24) {
+    self.findObject = {_id:new ObjectID(self.mac)};
+  }
 
-	this.taskOut = {task:{pause:defaultPause}}; //,_id:new ObjectID(),created:new Date()}; // This is the default task.
+  this.taskOut = {task:{pause:defaultPause}}; //,_id:new ObjectID(),created:new Date()}; // This is the default task.
 
-	this.appendError = function(errorObject) {
-		log(errorObject);
-		if (!self.taskOut.errors||self.taskOut.errors.length==0) {
-			self.taskOut.errors = new Array();
-		}
-		self.taskOut.errors.push({'error':errorObject,_id:new ObjectID(),'created':new Date()});
-	}
-
-	function getMachines(errCollection, collectionMachine, callback) {
-		if (errCollection!=null) {
-			self.appendError({'errordata':errCollection,'errorin':'hyrule.collection(\'machines\')'});
-			self.res.json(self.taskOut);
-		} else {
-			collectionMachine.findAndModify(
-			self.findObject,
-			[],
-			{'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}},
-			{'new':true, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
-			function(famErr, famMachine) {
-				if (famErr && !famErr.ok) {
-					self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify'});
-					self.res.json(self.taskOut);
-				} else {
-					if (famMachine!=null) {
-						self.machine = famMachine;
-						if (!self.machine.created || !self.machine.jobs) {
-							if (!self.machine.created) {
-								self.machine.created = new Date();
-							}
-							if (!self.machine.jobs) {
-								self.machine.jobs = new Array();
-							}
-							collectionMachine.update(self.findObject,{'$set':{'created':new Date(),'jobs':new Array()}},function() {});
-						}
+  function getMachines() {
+  cMachines.findAndModify(
+    self.findObject,
+    [],
+    {'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}},
+    {'new':true, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
+    function(famErr, famMachine) {
+    if (famErr && !famErr.ok) {
+      log('Error in findAndModify');
+      self.res.json(self.taskOut);
+      delete inProgress[self.req.params.mac];
+      return;
+    }
+    if (famMachine==null) {
+      log('Could not find the machine.');
+      self.res.json(self.taskOut);
+      delete inProgress[self.req.params.mac];
+      return;
+    }
+    self.machine = famMachine;
+    if (!self.machine.created || !self.machine.jobs) {
+      if (!self.machine.created) {
+        self.machine.created = new Date();
+      }
+      if (!self.machine.jobs) {
+        self.machine.jobs = new Array();
+      }
+      cMachines.update(self.findObject,{'$set':{'created':new Date(),'jobs':new Array()}},function() {});
+    }
 
 // Every request from the client, we need to do up to here. ^^^^^^^^^^^^^
 
-	self.doyourthang(collectionMachine);
+    self.doyourthang();
 
-// And after here. vvvvvvvvvvv
+// And after here. vvvvvvvvvv
+     });
+  }
 
-					} else {
-						self.appendError({'errordata':famErr,'errorin':'collectionMachine.findAndModify:no results'});
-						self.res.json(self.taskOut);
-						delete inProgress[self.req.params.mac];
-					}
-				}
-			});
-		}
-	}
+  function taskThang() {
+    var tStart = self.taskOut;// Our default task.
+    var jCount = 0;// This is kind of like our process count.
+    var tCount = 0;// This is kind of like our thread count.
 
-	function taskThang(cMachine) {
-		var tStart = self.taskOut;// Our default task.
-		var jCount = 0;// This is kind of like our process count.
-		var tCount = 0;// This is kind of like our thread count.
+    var updateObject = new Object();
+    updateObject['$set'] = new Object();
 
-		var updateObject = new Object();
-		updateObject['$set'] = new Object();
+    var uO = updateObject['$set'];// Makes referring to updateObject easier.
 
-		var uO = updateObject['$set'];// Makes referring to updateObject easier.
-
-		for (job in self.machine.jobs) {
-			if (self.machine.jobs[job].locked) {
-				break;
-			}
+    for (job in self.machine.jobs) {
+      if (self.machine.jobs[job].locked) {
+        break;
+    }
 
 			if (self.machine.jobs[job].started) {
 				jCount +=1; 
@@ -282,7 +270,7 @@ function Client(mac) {
 		}
 
 		if (tStart != self.taskOut) {
-			cMachine.update(self.findObject,updateObject,function(errSave) { // Yay for atomic operations.
+			cMachines.update(self.findObject,updateObject,function(errSave) { // Yay for atomic operations.
 				if (errSave) {
 					log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
 				} else {
@@ -298,7 +286,7 @@ function Client(mac) {
 //		log(self.end - self.start);
 	}
 
-	function passThang(collectionMachine) {
+	function passThang() {
 		var jPass;
 		var tRemove = -1;
 
@@ -365,7 +353,7 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
 			uO['jobs']._id = new ObjectID(jLog._id);
 		}
 
-		collectionMachine.update(self.findObject, updateObject, function(err,callback){ // it's atomic!
+		cMachines.update(self.findObject, updateObject, function(err,callback){ // it's atomic!
 			if (err && !err.ok) {
 				appendError({'errorData':err,'errorin':'updating machine on pass.'});
 				self.res.send('not ok.');
@@ -376,7 +364,7 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
 		});
 	}
 
-	function failThang(collectionMachine) {
+	function failThang() {
 		dbHyrule.collection('tasks', function(err, collectionTask) {
 			if (self.machine.jobs.length && self.machine.jobs[0].started && !self.machine.jobs[0].locked) { // don't pass if locked.
 				if (self.machine.jobs[0].tasks.length && self.machine.jobs[0].tasks[0].started) {
@@ -397,7 +385,7 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
 							collectionJob.insert(jobDone);
 						});
 					}
-					collectionMachine.save(self.machine, {}, function(err,callback){
+					cMachines.save(self.machine, {}, function(err,callback){
 						if (err && !err.ok) {
 							appendError({'errorData':err,'errorin':'updating machine on pass.'});
 							self.res.send('not ok.\n');
@@ -419,40 +407,39 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
 		});
 	}
 
-	function task(req, res) {
-		self.req = req;
-		self.res = res;
-		self.start = new Date();
-		self.doyourthang = taskThang;
-	
-		dbHyrule.collection('machines', getMachines);
-	}
+  function task(req, res) {
+    self.req = req;
+    self.res = res;
+    self.start = new Date();
+    self.doyourthang = taskThang;
+    getMachines();
+  }
 
-	function pass(req, res) {
-		self.req = req;
-		self.res = res;
-		self.start = new Date();
-		self.taskID = req.params.taskid;
-		self.doyourthang = passThang;
+  function pass(req, res) {
+    self.req = req;
+    self.res = res;
+    self.start = new Date();
+    self.taskID = req.params.taskid;
+    self.doyourthang = passThang;
 
-		dbHyrule.collection('machines', getMachines);
-	}
+    getMachines();
+  }
 
-	function fail(req, res) {
-		self.req = req;
-		self.res = res;
-		self.start = new Date();
-		self.taskID = req.params.taskid;
-		self.doyourthang = failThang;
+  function fail(req, res) {
+    self.req = req;
+    self.res = res;
+    self.start = new Date();
+    self.taskID = req.params.taskid;
+    self.doyourthang = failThang;
 
-		dbHyrule.collection('machines', getMachines);
-	}
+    getMachines();
+  }
 
-	this.task = task;
-	this.pass = pass;
-	this.fail = fail;
-	
-	return this;
+  this.task = task;
+  this.pass = pass;
+  this.fail = fail;
+
+  return this;
 }
 
 var inProgress = new Object();
@@ -534,6 +521,7 @@ zeldaExpress.listen(config.zelda.http.port);
 
 var zelServer = net.createServer(zelOnCreate);
 var zelSockID = 0;
+var sepChar = String.fromCharCode(3);
 
 function zelOnCreate(zelSock) {
   zelSock.setEncoding('utf8');
@@ -546,18 +534,24 @@ function zelOnCreate(zelSock) {
   zelSock.on('error', zelSockOnError);
 }
 
-function zelSockOnData(data) {
-  this.data+=data;
+var pdTs = 0;
 
-  if (this.data.lastIndexOf(String.fromCharCode(3))!=this.data.length-1) {
+function zelSockOnData(incomingdata) {
+  var dTd = new Date();
+  var dTs = dTd.getTime();
+
+  //log(dTs-pdTs);
+  pdTs = dTs;
+
+  this.data+=incomingdata;
+
+  if (this.data.indexOf(sepChar)<0) {
     return;
   }
-  
-  var prevChunk = '';
-  var chunks = this.data.split(String.fromCharCode(3));
 
+  var chunks = this.data.split(sepChar);
   var defaultTask = "{\"task\":{\"pause\":\""+defaultPause+"\"}}";
-  
+
   for (chunk in chunks) {
     if (chunks[chunk].length==0) {
       continue;
@@ -569,38 +563,42 @@ function zelSockOnData(data) {
     this.json = responseObjectJSON;
     
     var reqTime = new Date();
+    var reqTS = reqTime.getTime();
 
     if (inProgress[moblinData.params.mac]) {
-      inProgress[moblinData.params.mac]++;
-      if (inProgress[moblinData.params.mac] >= 5) {
+      var pO = inProgress[moblinData.params.mac];
+//      log(pO.length);
+//      log(moblinData.params.ts-pO[pO.length-1]);
+      inProgress[moblinData.params.mac].push(moblinData.params.ts);
+      if (inProgress[moblinData.params.mac].length >= 5) {
         lastOverRun = new Date();
       }
-      if (inProgress[moblinData.params.mac] >= 10) {
+      if (inProgress[moblinData.params.mac].length >= 10) {
         log('THE BRAKES!');
-        log(inProgress);
+        log(pO.length);
         defaultPause +=5;
-        inProgress[moblinData.params.mac] = 1;
       }
       process.send({jsonOut:'earlyOut'});
       this.send(defaultTask);
-    } else {
-
-      if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
-        lastOverRun = new Date();
-        defaultPause-=5;
-      }
-
-      inProgress[moblinData.params.mac] = new Object();
-      inProgress[moblinData.params.mac] = 1;
-
-      var zCurrent = new Client(moblinData.params.mac);
-      zCurrent.task(moblinData,this);
+      continue;
     }
+
+    prevMob = moblinData.params.mac;
+
+    if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 15) {
+      lastOverRun = new Date();
+      defaultPause-=5;
+    }
+
+    inProgress[moblinData.params.mac] = new Array();
+    inProgress[moblinData.params.mac].push(moblinData.params.ts);
+
+    var zCurrent = new Client(moblinData.params.mac);
+    zCurrent.task(moblinData,this);
   }
   this.data = '';
-  
-}  
-    
+}
+ 
 function responseObjectSend(out) {
   if (this.destroyed||this.readyState=='closed') {
     log('zelSock'+this.id+' is dead.');

@@ -50,7 +50,9 @@ function handleParentMessage(m) {
     case "Hold on a sec.":
       //clearInterval(moblin.httpHeartBeatInterval);
       clearInterval(mobSockWriteInterval);
+      delete mobSockWriteInterval;
       clearInterval(moblin.EKGInterval);
+      delete moblin.EKGInterval;
       break;
     case "Goodbye.":
       process.exit();
@@ -288,9 +290,9 @@ function mobSockOnClose(had_error) {
   log("mobSock"+mobSock.id+" closed.");
   if (mobSockWriteInterval) {
     clearInterval(mobSockWriteInterval);
-    mobSockWriteInterval = null;
+    delete mobSockWriteInterval;
   }
-  if (mobSockConnectInterval) {
+  if (mobSockConnectInterval && mobSockConnectInterval.ontimeout!=null) {
     return;
   }
   mobSockConnectInterval = setInterval(mobSockCreate, 100);
@@ -300,12 +302,12 @@ function mobSockOnConnect() {
   log("mobSock"+mobSock.id+" connected.");
   if (mobSockConnectInterval) {
     clearInterval(mobSockConnectInterval);
-    mobSockConnectInterval = null;
+    delete mobSockConnectInterval;
   }
-  if (mobSockWriteInterval) {
+  if (mobSockWriteInterval && mobSockWriteInterval.ontimeout!=null) {
     return;
   }
-  mobSockWriteInterval = setInterval(mobSockWrite, 10);
+  mobSockWriteInterval = setInterval(mobSockWrite, moblin.heartRate);
 }
 
 function mobSockOnData(data) {
@@ -330,18 +332,32 @@ function mobSockOnError(error) {
   handleSocketError(error);
 }
 
-function mobSockWrite() {
+var ls = 0;
+
+function mobSockWrite(source) {
+  var td = new Date();
+  var ts = td.getTime();
+
+  if (ts-ls<moblin.heartRate) {
+    // Sometimes node timers fire early.
+    log('timer fired early: '+(ts-ls)+' vs '+moblin.heartRate);
+    return;
+  }
+
+  ls = ts;
+
   if (mobSock.destroyed||mobSock.readyState=="closed") {
     log("mobSock"+mobSock.id+" is dead.");
     return;
   }
 
-  var output = JSON.stringify({params:{mac:moblin.name}});
+
+  var output = JSON.stringify({params:{mac:moblin.name,ts:ts}});
 
   try {
     mobSock.write(output);
     mobSock.write(String.fromCharCode(3));
   } catch (err) {
-    console.log(err);
+    log(err);
   }
 }
