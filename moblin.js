@@ -155,10 +155,10 @@ function moblinEKG () {
     heartOK = true;
   }
   if (!heartOK && !moblin.EKGFreePass) {
-    log("Irregular Heartbeat! "+Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))+" "+Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount)));
+    //log("Irregular Heartbeat! "+Math.round(moblin.EKGRate/(moblin.beatCount-moblin.prevBeatCount))+" "+Math.round(moblin.EKGRate/(moblin.eatCount-moblin.prevEatCount)));
   }
   if (mobSock.bytesRead>=moblin.prevBytesRead) {
-    log(((mobSock.bytesRead-moblin.prevBytesRead)/(moblin.EKGRate/1000))+' '+((mobSock.bytesWritten-moblin.prevBytesWritten)/(moblin.EKGRate/1000)));
+    //log(((mobSock.bytesRead-moblin.prevBytesRead)/(moblin.EKGRate/1000))+' '+((mobSock.bytesWritten-moblin.prevBytesWritten)/(moblin.EKGRate/1000)));
   }
   moblin.prevBytesRead = mobSock.bytesRead;
   moblin.prevBytesWritten = mobSock.bytesWritten;
@@ -172,7 +172,7 @@ function setHeartRate(newRate) {
     return;
   }
 
-  log("Changing heartrate from "+moblin.heartRate+" to "+newRate);
+  //log("Changing heartrate from "+moblin.heartRate+" to "+newRate);
 
   var oldRate = moblin.heartRate;
   moblin.heartRate = newRate;
@@ -333,16 +333,30 @@ function mobSockOnError(error) {
 }
 
 var ls = 0;
+var earlyCount = 0;
+var lateCount = 0;
+
+setInterval(function() {
+  if (process.send) {
+    process.send({early:earlyCount,late:lateCount});
+  }
+  //log('Actual: '+Math.round(500/lateCount)+' Early: '+earlyCount);
+  earlyCount = 0;
+  lateCount = 0;
+}, 500);
+
 
 function mobSockWrite(source) {
   var td = new Date();
   var ts = td.getTime();
 
-  if (ts-ls<moblin.heartRate) {
+  if (ts-ls<moblin.heartRate*0.8) {
     // Sometimes node timers fire early.
-    log('timer fired early: '+(ts-ls)+' vs '+moblin.heartRate);
+    earlyCount++;
     return;
   }
+
+  lateCount++;
 
   ls = ts;
 

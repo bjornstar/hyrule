@@ -41,14 +41,13 @@ function log(data) {
   console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
 }
 
-
-
-function showMeTheData() {
-  log("Early Outs: "+clstrEarlyOuts+", Database Hits: "+clstrDBHits);
-}
-
+hyrule.workers = new Array();
 var clstrEarlyOuts = 0;
 var clstrDBHits = 0;
+
+function showMeTheData() {
+  log("Early Outs: "+clstrEarlyOuts+", Database Hits: "+clstrDBHits+", Live Workers: "+hyrule.workers.length);
+}
 
 if (cluster.isMaster) {
   for (var i = 0;i < os.cpus().length; i++) {
@@ -70,16 +69,18 @@ if (cluster.isMaster) {
     worker.on('death', function(worker) {
       log('worker '+worker.pid+ ' died.');
     });
+    hyrule.workers.push(worker);
   }
+
 
   var lovelyDataInterval = setInterval(showMeTheData, 3000);
 } else {
 
-dbHyrule.open(function() {
-  log('Welcome to Hyrule.');
-  var timeDBOpen = new Date();
-  log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
-});
+  dbHyrule.open(function() {
+    log('Welcome to Hyrule.');
+    var timeDBOpen = new Date();
+    log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
+  });
 
 fs.readFile('./package.json', 'utf8', function(err,data) {
   if (err) throw err;
@@ -88,9 +89,9 @@ fs.readFile('./package.json', 'utf8', function(err,data) {
   log('You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
 });
 
-hyrule.config.watcher = fs.watchFile(configFile, configWatchEvent);
-hyrule.moblin.watcher = fs.watchFile('./moblin.js', generateMoblinMD5);
-hyrule.fairy.watcher = fs.watchFile('./fairy.js', generateFairyMD5);
+hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
+hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
+hyrule.fairy.watcher = fs.watch('./fairy.js', generateFairyMD5);
 
 var newmoblin = '';
 var newfairy = '';
@@ -175,7 +176,7 @@ function Client(mac) {
     self.findObject,
     [],
     {'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}},
-    {'new':true, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
+    {'new':false, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
     function(famErr, famMachine) {
     if (famErr && !famErr.ok) {
       log('Error in findAndModify');
@@ -551,6 +552,7 @@ function zelSockOnData(incomingdata) {
 
   var chunks = this.data.split(sepChar);
   var defaultTask = "{\"task\":{\"pause\":\""+defaultPause+"\"}}";
+  var braked = false;
 
   for (chunk in chunks) {
     if (chunks[chunk].length==0) {
@@ -567,16 +569,15 @@ function zelSockOnData(incomingdata) {
 
     if (inProgress[moblinData.params.mac]) {
       var pO = inProgress[moblinData.params.mac];
-//      log(pO.length);
-//      log(moblinData.params.ts-pO[pO.length-1]);
       inProgress[moblinData.params.mac].push(moblinData.params.ts);
       if (inProgress[moblinData.params.mac].length >= 5) {
         lastOverRun = new Date();
       }
-      if (inProgress[moblinData.params.mac].length >= 10) {
+      if (inProgress[moblinData.params.mac].length >= 10 && braked) {
         log('THE BRAKES!');
         log(pO.length);
         defaultPause +=5;
+        braked=true;
       }
       process.send({jsonOut:'earlyOut'});
       this.send(defaultTask);
