@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+  <script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="text/javascript">
+  <!--
+function draw () {
+  var aCanvas = document.getElementById('a');
+  var ctx = aCanvas.getContext('2d');
+
+  var height = aCanvas.height;
+  var width = aCanvas.width;
+
+  var max = 2000;
+  var scale = height/max;
+  var steps = 120;
+  var step = width/(steps-1);
+  // clear
+  ctx.clearRect(0,0,width,height);
+
+  // fill
+  ctx.fillStyle = "#eee";
+  ctx.rect(0,0,width,height);
+  ctx.fill();
+
+  ctx.fillStyle = "#ccc";
+  ctx.beginPath();
+  ctx.moveTo(0, height);
+  ctx.lineTo(0, dashPump.data[0]);
+  for (var i=0;i<dashPump.data.length;i++) {
+    ctx.lineTo(i*step, height - dashPump.data[i]*scale);
+  }
+  ctx.lineTo((dashPump.data.length-1)*step, height);
+  ctx.closePath();
+  ctx.fill();
+  // stroke
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1.6;
+  for (var j=0;j<dashPump.data.length;j++) {
+    if (j) {
+      ctx.lineTo(j*step, height - dashPump.data[j]*scale);
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(j*step, height - dashPump.data[j]*scale);
+  }
+}
+
+var Datapump = function() {
+  this.data = [ 0 ];
+  var index = 0;
+  this.single = function() {
+    index += 1;
+    if (index > this.data.length) {
+      index = 1;
+    }
+    return this.data[this.index-1];
+  };
+  this.many = function(length) {
+    var results = [];
+    for (var i=0;i<length;i++) {
+      results.push(this.single());
+    }
+    return results;
+  };
+};
+
+var dashPump = new Datapump();
+for (var l=0;l<120;l++) {
+  dashPump.data.push(0);
+}
+
+var socket = io.connect();
+
+socket.on('connect', function() {
+  socket.emit('dashstart');
+  var aCanvas = document.getElementById('a');
+  aCanvas.width = 600;
+  aCanvas.height = 200;
+});
+
+socket.on('dash', dash);
+
+function dash(data) {
+  dashPump.data.shift();
+  dashPump.data.push(data.updatesPerSecond);
+  draw();
+  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n');
+}
+
+
+$(document).ready(function() {
+
+});
+  -->
+  </script>
+  <title>Hyrule</title>
+</head>
+<body>
+  <canvas id="a"></canvas>
+  <div id="b"></div>
+</body>
+</html>

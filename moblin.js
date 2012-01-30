@@ -231,6 +231,12 @@ function digestTask(chunk, taskStart) {
   }
 
   var taskEnd = new Date();
+  var ooo = '';
+  ooo = taskEnd.getTime()-tastyBits.ts+'';
+  if (tastyBits.early) {
+    ooo = '*   '+ooo;
+  }
+  //log(ooo);
   //log((taskEnd-taskStart)+' '+task.pause);
 
   if(task.pause && moblin.heartRate != task.pause) {
@@ -266,6 +272,7 @@ var mobSockWriteInterval;
 var mobSockConnectInterval;
 var mobSockID = 0;
 var mobSockData = "";
+var mobSockTimeout = 10000;
 
 mobSockCreate();
 
@@ -280,10 +287,18 @@ function mobSockCreate() {
   mobSock.id = mobSockID++;
   mobSock.on("close", mobSockOnClose);
   mobSock.on("data", mobSockOnData);
+  mobSock.on("timeout", mobSockOnTimeout);
   mobSock.on("error", mobSockOnError);
+
+  mobSock.setTimeout(mobSockTimeout);
 
   mobSock.connect(config.zelda.socket.port, config.zelda.socket.host, mobSockOnConnect);
   log("Created mobSock"+mobSock.id+".");
+}
+
+function mobSockOnTimeout() {
+  log("This socket has timed out.");
+  mobSock.end();
 }
 
 function mobSockOnClose(had_error) {
@@ -351,7 +366,7 @@ function mobSockWrite(source) {
   var ts = td.getTime();
 
   if (ts-ls<moblin.heartRate*0.8) {
-    // Sometimes node timers fire early.
+    // Sometimes node timers fire early. We let them fire 20% early, otherwise it's a bit much. They can try again.
     earlyCount++;
     return;
   }

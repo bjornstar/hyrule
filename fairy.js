@@ -1,7 +1,3 @@
-var config = new Object();
-
-config.zelda = {"http":{"host":"10.30.0.73","port":4000},"socket":{"host":"10.30.0.73","port":4003}};
-
 var crypto = require("crypto");
 var fs     = require("fs");
 var http   = require("http");
@@ -55,6 +51,7 @@ function launchMoblin() {
     var moblinMD5 = crypto.createHash("md5").update(data).digest("hex");
     log("Moblin MD5: "+moblinMD5);
 
+    log("Spawning a moblin.");
     var newMoblin = fork("moblin.js"); // This doesn't launch moblin until the file is read and MD5 is performed.
 
     log("Moblin."+newMoblin.pid+" launched.");
@@ -229,7 +226,16 @@ function handleDownloadFinished(data) {
 
     fairy.readyState="verifying";
 
+    if (hyrule.moblins.length>parallelMoblins+1) {
+      log("Plenty of moblins around, not launching a new one.");
+      return;
+    } else {
+      log(hyrule.moblins.length+" moblins nearby, I can spawn a new one.");
+    }
+
+    log("Spawning a newmoblin.");
     var newMoblin = fork("newmoblin.js");
+
     newMoblin.md5 = newMoblinMD5;
     newMoblin.on("message", handleMoblinMessage);
     newMoblin.on("exit", handleMoblinExit);

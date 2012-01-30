@@ -42,24 +42,66 @@ function log(data) {
 }
 
 hyrule.workers = new Array();
-var clstrEarlyOuts = 0;
-var clstrDBHits = 0;
+cluster.earlyOuts = 0;
+cluster.dbHits = 0;
+cluster.openSockets = 0;
 
 function showMeTheData() {
-  log("Early Outs: "+clstrEarlyOuts+", Database Hits: "+clstrDBHits+", Live Workers: "+hyrule.workers.length);
+  log("Early Outs: "+cluster.earlyOuts+", Database Hits: "+cluster.dbHits+", Live Workers: "+hyrule.workers.length+", Open Sockets: "+cluster.openSockets);
+  cluster.earlyOuts = 0;
+  cluster.dbHits = 0;
+  var output1 = '';
+  var output2 = '';
+  for (i=0;i<hyrule.workers.length;i++) {
+    var oW = hyrule.workers[i];
+    output1 = output1 + ' ' + oW.pid;
+    output2 = output2 + ' ' + oW.earlyOuts + ' ' + oW.dbHits + ' ' + oW.sockets.length;
+    oW.earlyOuts = 0;
+    oW.dbHits = 0;
+  }
+  log(output1);
+  log(output2);
 }
 
 if (cluster.isMaster) {
   for (var i = 0;i < os.cpus().length; i++) {
     var worker = cluster.fork();
 
+    hyrule.workers.push(worker);
+    worker.earlyOuts = 0;
+    worker.dbHits = 0;
+    worker.sockets = new Array();
+
     worker.on('message', function (msg) {
+      if (msg.connected!=null) {
+        cluster.openSockets++;
+        this.sockets.push(msg.connected);
+        return;
+      }
+      if (msg.closed!=null) {
+        if (this.sockets.indexOf(msg.closed)==-1) {
+          return;
+        }
+        this.sockets.splice(this.sockets.indexOf(msg.closed),1);
+        cluster.openSockets--;
+        return;
+      }
+      if (msg.timeouted!=null) {
+        if (this.sockets.indexOf(msg.timeouted)==-1) {
+          return;
+        }
+        this.sockets.splice(this.sockets.indexOf(msg.timeouted),1);
+        cluster.openSockets--;
+        return;
+      }
       switch (msg.jsonOut) {
         case 'earlyOut':
-          clstrEarlyOuts++;
+          cluster.earlyOuts++;
+          this.earlyOuts++;
           break;
         case 'dbHit':
-          clstrDBHits++;
+          cluster.dbHits++;
+          this.dbHits++;
           break;
         default:
           //log(msg);
@@ -69,11 +111,10 @@ if (cluster.isMaster) {
     worker.on('death', function(worker) {
       log('worker '+worker.pid+ ' died.');
     });
-    hyrule.workers.push(worker);
   }
 
 
-  var lovelyDataInterval = setInterval(showMeTheData, 3000);
+  var lovelyDataInterval = setInterval(showMeTheData, 1000);
 } else {
 
   dbHyrule.open(function() {
@@ -122,7 +163,7 @@ function generateMoblinMD5(exxnt, filename) {
   }
   fs.readFile('./moblin.js', 'utf8', function(err,data) {
     if (err) throw err;
-    newmoblin = 'var config = new Object();\n\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
+    newmoblin = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.moblin.md5 = crypto.createHash('md5').update(newmoblin).digest('hex');
     log('Moblin MD5: '+hyrule.moblin.md5);
     delete hyrule.moblin.md5inprogress;
@@ -142,7 +183,7 @@ function generateFairyMD5(exxnt, filename) {
   }
   fs.readFile('./fairy.js', 'utf8', function(err,data) {
     if (err) throw err;
-    newfairy = 'var config = new Object();\n\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
+    newfairy = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.fairy.md5 = crypto.createHash('md5').update(newfairy).digest('hex');
     log(' Fairy MD5: '+hyrule.fairy.md5);
     delete hyrule.fairy.md5inprogress;
@@ -222,29 +263,27 @@ function Client(mac) {
     for (job in self.machine.jobs) {
       if (self.machine.jobs[job].locked) {
         break;
-    }
+      }
+      if (self.machine.jobs[job].started) {
+        jCount +=1; 
+      }
+      if (jCount>=2) {
+        break;
+      }
 
-			if (self.machine.jobs[job].started) {
-				jCount +=1; 
-			}
+      var jStart = self.machine.jobs[job];
 
-			if (jCount>=2) {
-				break;
-			}
+      if (!jStart.started && jCount<1) {
+        var jStarted = new Date()
+        var jTimeout = new Date(jStarted.getTime() + jStart.duration);
+        jStart.started = jStarted;
+        jStart.timeout = jTimeout;
 
-			var jStart = self.machine.jobs[job];
+        uO['jobs.'+job+'.started'] = jStarted;
+        uO['jobs.'+job+'.timeout'] = jTimeout;
 
-			if (!jStart.started && jCount<1) {
-				var jStarted = new Date()
-				var jTimeout = new Date(jStarted.getTime() + jStart.duration);
-				jStart.started = jStarted;
-				jStart.timeout = jTimeout;
-
-				uO['jobs.'+job+'.started'] = jStarted;
-				uO['jobs.'+job+'.timeout'] = jTimeout;
-
-				jCount +=1
-			}
+        jCount +=1
+      }
 
 			for (task in jStart.tasks) {
 				if (jStart.tasks[task].started) {
@@ -280,6 +319,7 @@ function Client(mac) {
 			});
 		}
                 process.send({jsonOut:'dbHit'});
+tStart.ts = self.req.params.ts;
 		self.res.json(tStart); // We're not waiting for the save event to finish.
 		delete inProgress[self.req.params.mac];
 
@@ -523,16 +563,33 @@ zeldaExpress.listen(config.zelda.http.port);
 var zelServer = net.createServer(zelOnCreate);
 var zelSockID = 0;
 var sepChar = String.fromCharCode(3);
+var zelSockTimeout = 10000;
 
 function zelOnCreate(zelSock) {
   zelSock.setEncoding('utf8');
   zelSock.setNoDelay(true);
+  zelSock.setTimeout(zelSockTimeout);
   zelSock.id = zelSockID++;
   zelSock.data = '';
 
+  zelSock.on('close', zelSockOnClose);
+  zelSock.on('connect', zelSockOnConnect);
   zelSock.on('data', zelSockOnData);  
   zelSock.on('end', zelSockOnEnd);
   zelSock.on('error', zelSockOnError);
+  zelSock.on('timeout', zelSockOnTimeout);
+}
+
+function zelSockOnConnect() {
+  process.send({connected:process.pid+'s'+this.id});
+}
+
+function zelSockOnClose() {
+  process.send({closed:process.pid+'s'+this.id});
+}
+
+function zelSockOnTimeout() {
+  process.send({timeouted:process.pid+'s'+this.id});
 }
 
 var pdTs = 0;
@@ -551,7 +608,7 @@ function zelSockOnData(incomingdata) {
   }
 
   var chunks = this.data.split(sepChar);
-  var defaultTask = "{\"task\":{\"pause\":\""+defaultPause+"\"}}";
+  var defaultTask = "{\"task\":{\"pause\":\""+defaultPause+"\"},\"early\":true}";
   var braked = false;
 
   for (chunk in chunks) {
@@ -559,7 +616,12 @@ function zelSockOnData(incomingdata) {
       continue;
     }
 
-    var moblinData = JSON.parse(chunks[chunk]);
+    try {
+      var moblinData = JSON.parse(chunks[chunk]);
+    } catch (err) {
+      log(err);
+      return;
+    }
 
     this.send = responseObjectSend;
     this.json = responseObjectJSON;
@@ -573,14 +635,14 @@ function zelSockOnData(incomingdata) {
       if (inProgress[moblinData.params.mac].length >= 5) {
         lastOverRun = new Date();
       }
-      if (inProgress[moblinData.params.mac].length >= 10 && braked) {
+      if (inProgress[moblinData.params.mac].length >= 10 && !braked) {
         log('THE BRAKES!');
-        log(pO.length);
+        log(inProgress);
         defaultPause +=5;
         braked=true;
       }
       process.send({jsonOut:'earlyOut'});
-      this.send(defaultTask);
+      this.json({task:{pause:defaultPause},ts:moblinData.params.ts,early:true});
       continue;
     }
 

@@ -3,16 +3,33 @@ var express = require('express');
 var io      = require('socket.io');
 var util    = require('util');
 
-var config  = require('./config/default.json');
+var hyrule = new Object();
+hyrule.appName = 'Link';
+hyrule.appStart = new Date();
+hyrule.config = new Object();
+
+var configFileDefault = ('./config/default.json');
+var configFile = configFileDefault;
+
+if (process.argv[2]) {
+  var whichfile = process.argv[2].split('--')
+  configFile = './config/'+whichfile.pop()+'.json';
+}
+
+var config;
+
+try {
+  config = require(configFile); // This holds our configuration data.
+  log('Using '+configFile);
+} catch (err) {
+  config = require(configFileDefault);
+  log('Using default config.');
+}
 
 var ObjectID = mongodb.ObjectID;
 
 var serverHorcrux = new mongodb.Server(config.hyrule.host, config.hyrule.port);
 var dbHyrule = new mongodb.Db(config.hyrule.database, serverHorcrux, {});
-
-var hyrule = new Object();
-hyrule.appName = 'Link';
-hyrule.appStart = new Date();
 
 function log(data) {
   console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
@@ -23,6 +40,8 @@ dbHyrule.open(function() {
   var timeDBOpen = new Date();
   log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
+
+var dbMachines = dbHyrule.collection('machines');
 
 log('Hello, my name is ' + hyrule.appName + '!');
 
@@ -62,32 +81,42 @@ function socketOnDashStart() {
   socketClients[this.id].socketInterval = setInterval(dashPush, defaultFrequency, this);
 }
 
+var dashInProgress = new Object();
+
 function dashPush(dSocket) {
-  dbHyrule.collection('machines', function(errCollection, collectionMachine) {
-    collectionMachine.find({},{timesseen:1}).sort({_id:1}).toArray( function(errFind, rMachines) {
-      if (!socketClients[dSocket.id]) {
-        return;
-      }
+  if (dashInProgress[dSocket.id]) {
+    return;
+  }
+  var pStart = new Date();
+  var yesterday = new Date(pStart.getTime()-24*60*60*1000);
+  dbMachines.find({lastseen:{'$gt':yesterday}},{timesseen:1}).sort({_id:-1}).toArray( function(errFind, rMachines) {
+    if (!socketClients[dSocket.id]) {
+      return;
+    }
 
-      var output;
-      var totalTimesseen = 0;
+    var output;
+    var totalTimesseen = 0;
 
-      for (rMachine in rMachines) {
-        var cMachine = rMachines[rMachine];
-        totalTimesseen += cMachine.timesseen;
-      }
+    for (rMachine in rMachines) {
+      var cMachine = rMachines[rMachine];
+      totalTimesseen += cMachine.timesseen;
+    }
 
-      var output = new Object();
+    var output = new Object();
 
-      output.dashUsers = socketClients.length;
-      output.dashFrequency = socketClients[dSocket.id].frequency;
-      output.totalUpdatecount = totalTimesseen;
-      output.deltaUpdatecount = totalTimesseen - socketClients[dSocket.id].prevTimesseen;
+    output.dashUsers = socketClients.length;
+    output.dashFrequency = socketClients[dSocket.id].frequency;
+    output.totalUpdatecount = totalTimesseen;
+    output.deltaUpdatecount = totalTimesseen - socketClients[dSocket.id].prevTimesseen;
+    if (output.deltaUpdatecount<totalTimesseen) {
       output.usecPerClient = Math.floor(10*output.dashFrequency / output.deltaUpdatecount);
       output.updatesPerSecond = Math.floor(output.deltaUpdatecount * 1000 / output.dashFrequency) ;
-      dSocket.emit('dash', output);
-      socketClients[dSocket.id].prevTimesseen = totalTimesseen;
-    });
+    }
+    var pEnd = new Date();
+    log(pEnd.getTime()-pStart.getTime());
+    dSocket.emit('dash', output);
+    socketClients[dSocket.id].prevTimesseen = totalTimesseen;
+    delete dashInProgress[dSocket.id];
   });
 }
 
@@ -410,14 +439,8 @@ link.get('/jobs', function(req, res){
   });
 });
 
-link.get('*', function(req, res){
-  var output = '';
-  output += '<a href="/inprogress">/inprogress</a><br />';
-  output += '<a href="/machines">/machines</a><br />';
-  output += '<a href="/tasks">/tasks</a><br />';
-  output += '<a href="/jobs">/jobs</a><br />';
-  output += '<a href="/machine/4f0a3c39856936725a000001/rdmsr/198/ff">rdmsr</a>';
-  res.send(output);
+link.get('/', function(req, res){
+  res.sendfile('./templates/index.html');
 });
 
 link.get('/version', function(req,res) {
