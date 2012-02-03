@@ -14,6 +14,10 @@ hyrule.moblin = new Object();
 hyrule.fairy = new Object();
 hyrule.config = new Object();
 
+function log(data) {
+  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
+}
+
 var configFileDefault = ('./config/default.json');
 var configFile = configFileDefault;
 
@@ -31,20 +35,12 @@ try {
   log('Using default config.');
 }
 
-var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
-
-var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
-var dbHyrule = new mongodb.Db(config.hyrule.database, serverHyrule, {}); // This is our database
-var cMachines = new mongodb.Collection(dbHyrule, 'machines');
-
-function log(data) {
-  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
-}
-
-hyrule.workers = new Array();
-cluster.earlyOuts = 0;
-cluster.dbHits = 0;
-cluster.openSockets = 0;
+fs.readFile('./package.json', 'utf8', function(err,data) {
+  if (err) throw err;
+  var jsonPackage = JSON.parse(data);
+  hyrule.version = jsonPackage.version;
+  log('I am '+hyrule.appName+' in Hyrule v'+hyrule.version);
+});
 
 function showMeTheData() {
   log("Early Outs: "+cluster.earlyOuts+", Database Hits: "+cluster.dbHits+", Live Workers: "+hyrule.workers.length+", Open Sockets: "+cluster.openSockets);
@@ -63,83 +59,10 @@ function showMeTheData() {
   log(output2);
 }
 
-if (cluster.isMaster) {
-  for (var i = 0;i < os.cpus().length; i++) {
-    var worker = cluster.fork();
-
-    hyrule.workers.push(worker);
-    worker.earlyOuts = 0;
-    worker.dbHits = 0;
-    worker.sockets = new Array();
-
-    worker.on('message', function (msg) {
-      if (msg.connected!=null) {
-        cluster.openSockets++;
-        this.sockets.push(msg.connected);
-        return;
-      }
-      if (msg.closed!=null) {
-        if (this.sockets.indexOf(msg.closed)==-1) {
-          return;
-        }
-        this.sockets.splice(this.sockets.indexOf(msg.closed),1);
-        cluster.openSockets--;
-        return;
-      }
-      if (msg.timeouted!=null) {
-        if (this.sockets.indexOf(msg.timeouted)==-1) {
-          return;
-        }
-        this.sockets.splice(this.sockets.indexOf(msg.timeouted),1);
-        cluster.openSockets--;
-        return;
-      }
-      switch (msg.jsonOut) {
-        case 'earlyOut':
-          cluster.earlyOuts++;
-          this.earlyOuts++;
-          break;
-        case 'dbHit':
-          cluster.dbHits++;
-          this.dbHits++;
-          break;
-        default:
-          //log(msg);
-      }
-    });
-
-    worker.on('death', function(worker) {
-      log('worker '+worker.pid+ ' died.');
-    });
-  }
-
-
-  var lovelyDataInterval = setInterval(showMeTheData, 1000);
-} else {
-
-  dbHyrule.open(function() {
-    log('Welcome to Hyrule.');
-    var timeDBOpen = new Date();
-    log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
-  });
-
-fs.readFile('./package.json', 'utf8', function(err,data) {
-  if (err) throw err;
-  var jsonPackage = JSON.parse(data);
-  hyrule.version = jsonPackage.version;
-  log('You are '+hyrule.appName+' in Hyrule v'+hyrule.version);
-});
-
-hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
-hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
-hyrule.fairy.watcher = fs.watch('./fairy.js', generateFairyMD5);
-
 var newmoblin = '';
 var newfairy = '';
 
 function configWatchEvent(exxnt, filename) {
-  log(exxnt);
-  log(hyrule.moblin.md5inprogress);
   if (exxnt==='rename') {
     return;
   }
@@ -151,20 +74,30 @@ function configWatchEvent(exxnt, filename) {
 }
 
 function generateMoblinMD5(exxnt, filename) {
-  if (exxnt==='rename') {
-    return;
-  }
+  hyrule.moblin.watcher.close();
+  hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
+
   if (hyrule.moblin.md5inprogress) {
     return;
   }
+
   hyrule.moblin.md5inprogress = true;
+
   if (exxnt==='change') {
     log('moblin.js has been modified.');
   }
+
   fs.readFile('./moblin.js', 'utf8', function(err,data) {
     if (err) throw err;
     newmoblin = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.moblin.md5 = crypto.createHash('md5').update(newmoblin).digest('hex');
+    hyrule.moblin.code = newmoblin;
+    if (exxnt=="change") {
+      for (worker in hyrule.workers) {
+        hyrule.workers[worker].send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
+        hyrule.workers[worker].send({cmd:"moblincode",code:hyrule.moblin.code});
+      }
+    }
     log('Moblin MD5: '+hyrule.moblin.md5);
     delete hyrule.moblin.md5inprogress;
   });
@@ -183,15 +116,128 @@ function generateFairyMD5(exxnt, filename) {
   }
   fs.readFile('./fairy.js', 'utf8', function(err,data) {
     if (err) throw err;
-    newfairy = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
+    var newfairy = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.fairy.md5 = crypto.createHash('md5').update(newfairy).digest('hex');
+    hyrule.fairy.code = newfairy;
     log(' Fairy MD5: '+hyrule.fairy.md5);
     delete hyrule.fairy.md5inprogress;
   });
 }
 
-generateMoblinMD5('launch', null);
-generateFairyMD5('launch', null);
+if (cluster.isMaster) { // The master keeps track of the files and the workers.
+
+  hyrule.workers = new Array();
+  cluster.earlyOuts = 0;
+  cluster.dbHits = 0;
+  cluster.openSockets = 0;
+
+  hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
+  hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
+  hyrule.fairy.watcher = fs.watch('./fairy.js', generateFairyMD5);
+
+  generateMoblinMD5('launch', null);
+  generateFairyMD5('launch', null);
+
+  for (var i = 0;i < os.cpus().length; i++) {
+    var worker = cluster.fork();
+
+    hyrule.workers.push(worker);
+    worker.earlyOuts = 0;
+    worker.dbHits = 0;
+    worker.sockets = new Array();
+
+    worker.on('message', handleMessageFromWorker);
+    worker.on('death', function workerOnDeath(worker) {
+      log('worker '+worker.pid+ ' died.');
+    });
+  }
+
+  log("I am the master!");
+
+  var lovelyDataInterval = setInterval(showMeTheData, 1000);
+  return;
+}
+
+process.on("message", handleMessageFromMaster);
+
+log("I am a worker!");
+
+// Everything below here is for the workers.
+
+var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
+var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
+var dbHyrule = new mongodb.Db(config.hyrule.database, serverHyrule, {}); // This is our database
+var cMachines = new mongodb.Collection(dbHyrule, 'machines');
+
+dbHyrule.open(function() {
+  log('Welcome to Hyrule.');
+  var timeDBOpen = new Date();
+  log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
+});
+
+function handleMessageFromMaster(msg) {
+  switch (msg.cmd) {
+    case "moblinmd5":
+      log("NEW MD5!!!!!!!!!!!!!!!!!!");
+      hyrule.moblin.md5=msg.md5;
+      break;
+    case "moblincode":
+      log("NEW CODE!!!!!!!!!!!!!!!!");
+      hyrule.moblin.code=msg.code;
+      break;
+    default:
+      log(msg);
+  }
+}
+
+function handleMessageFromWorker(msg) {
+  if (msg.connected!=null) {
+    cluster.openSockets++;
+    this.sockets.push(msg.connected);
+    return;
+  }
+  if (msg.closed!=null) {
+    if (this.sockets.indexOf(msg.closed)==-1) {
+      return;
+    }
+    this.sockets.splice(this.sockets.indexOf(msg.closed),1);
+    cluster.openSockets--;
+    return;
+  }
+  if (msg.timeouted!=null) {
+    if (this.sockets.indexOf(msg.timeouted)==-1) {
+      return;
+    }
+    this.sockets.splice(this.sockets.indexOf(msg.timeouted),1);
+    cluster.openSockets--;
+    return;
+  }
+  switch (msg.cmd) {
+    case "moblinmd5":
+      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
+      break;
+    case "moblincode":
+      this.send({cmd:"moblincode",code:hyrule.moblin.code});
+      break;
+    case "online":
+      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
+      this.send({cmd:"moblincode",code:hyrule.moblin.code});
+      break;
+    case "earlyOut":
+      cluster.earlyOuts++;
+      this.earlyOuts++;
+      break;
+    case "dbHit":
+      cluster.dbHits++;
+      this.dbHits++;
+      break;
+    case "queryServer":
+      break;
+    default:
+      log(msg);
+  }
+}
+
 
 var defaultPause = 50;
 var zeldaExpress = express.createServer();
@@ -285,47 +331,48 @@ function Client(mac) {
         jCount +=1
       }
 
-			for (task in jStart.tasks) {
-				if (jStart.tasks[task].started) {
-					tCount +=1 
-					break;
-				}
+      for (task in jStart.tasks) {
+        if (jStart.tasks[task].started) {
+          tCount +=1 
+          break;
+        }
 
-				if (tCount>=1) {
-					break;
-				}
+        if (tCount>=1) {
+          break;
+        }
 
-				tStart = jStart.tasks[task];
+        tStart = jStart.tasks[task];
 
-				tStarted = new Date();
-				tTimeout = new Date(tStarted.getTime() + tStart.duration);
-				tStart.started = tStarted;
-				tStart.timeout = tTimeout;
+        tStarted = new Date();
+        tTimeout = new Date(tStarted.getTime() + tStart.duration);
+        tStart.started = tStarted;
+        tStart.timeout = tTimeout;
 
-				uO['jobs.'+job+'.tasks.'+task+'.started'] = tStarted;
-				uO['jobs.'+job+'.tasks.'+task+'.timeout'] = tTimeout;
+        uO['jobs.'+job+'.tasks.'+task+'.started'] = tStarted;
+        uO['jobs.'+job+'.tasks.'+task+'.timeout'] = tTimeout;
 
-				tCount +=1
-			}
-		}
+        tCount +=1
+      }
+    }
 
-		if (tStart != self.taskOut) {
-			cMachines.update(self.findObject,updateObject,function(errSave) { // Yay for atomic operations.
-				if (errSave) {
-					log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
-				} else {
-				//	log('updated: ' + JSON.stringify(tStart) + ' ' + self.start.getTime() + ' ' + now.getTime());
-				}
-			});
-		}
-                process.send({jsonOut:'dbHit'});
-tStart.ts = self.req.params.ts;
-		self.res.json(tStart); // We're not waiting for the save event to finish.
-		delete inProgress[self.req.params.mac];
+    if (tStart != self.taskOut) {
+      cMachines.update(self.findObject,updateObject,function(errSave) { // Yay for atomic operations.
+        if (errSave) {
+          log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
+        } else {
+          // log('updated: ' + JSON.stringify(tStart) + ' ' + self.start.getTime() + ' ' + now.getTime());
+        }
+      });
+    }
 
-		self.end = new Date();
-//		log(self.end - self.start);
-	}
+    process.send({cmd:'dbHit'});
+    tStart.ts = self.req.params.ts;
+    self.res.json(tStart); // We're not waiting for the save event to finish.
+    delete inProgress[self.req.params.mac];
+
+    self.end = new Date();
+    // log(self.end - self.start);
+  }
 
 	function passThang() {
 		var jPass;
@@ -536,17 +583,21 @@ zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})
 });
 
 zeldaExpress.get('/version', function(req,res) {
-  res.send(hyrule);
+  var oVersion = new Object();
+  oVersion.moblin = new Object();
+  oVersion.moblin.md5 = hyrule.moblin.md5;
+  oVersion.version = hyrule.version
+  res.json(oVersion);
 });
 
 zeldaExpress.get('/moblin.js', function(req,res) {
   res.header('Content-Type', 'text/plain');
-  res.send(newmoblin);
+  res.send(hyrule.moblin.code);
 });
 
 zeldaExpress.get('/fairy.js', function(req,res) {
   res.header('Content-Type', 'text/plain');
-  res.send(newfairy);
+  res.send(hyrule.fairy.code);
 });
 
 zeldaExpress.listen(config.zelda.http.port);
@@ -641,7 +692,7 @@ function zelSockOnData(incomingdata) {
         defaultPause +=5;
         braked=true;
       }
-      process.send({jsonOut:'earlyOut'});
+      process.send({cmd:'earlyOut'});
       this.json({task:{pause:defaultPause},ts:moblinData.params.ts,early:true});
       continue;
     }
@@ -713,6 +764,4 @@ function handleSocketError(socketException) {
     default:
       log(socketException);
   }
-}
-
 }

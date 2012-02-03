@@ -5,7 +5,7 @@ var os     = require("os");
 var spawn  = require("child_process").spawn;
 var util   = require("util");
 
-process.on("message", handleParentMessage);
+//process.on("message", handleParentMessage);
 process.on("exit", handleProcessOnExit);
 
 var defaultConfig = new Object();
@@ -33,11 +33,7 @@ function log(data){
 var moblin = hyrule.moblin;
 var intInc = 0; // This is for creating ObjectIDs.
 
-//if (os.hostname().match(/([0-9a-fA-F]{12})|([0-9a-fA-F]{24})/)) {
-//  moblin.name = os.hostname();
-//} else {
-  moblin.name = generateObjectId();
-//}
+moblin.name = generateObjectId();
 
 function handleProcessOnExit(code) {
   if (this.send) {
@@ -293,7 +289,7 @@ function mobSockCreate() {
   mobSock.setTimeout(mobSockTimeout);
 
   mobSock.connect(config.zelda.socket.port, config.zelda.socket.host, mobSockOnConnect);
-  log("Created mobSock"+mobSock.id+".");
+  //log("Created mobSock"+mobSock.id+".");
 }
 
 function mobSockOnTimeout() {
@@ -314,7 +310,7 @@ function mobSockOnClose(had_error) {
 }
 
 function mobSockOnConnect() {
-  log("mobSock"+mobSock.id+" connected.");
+  //log("mobSock"+mobSock.id+" connected.");
   if (mobSockConnectInterval) {
     clearInterval(mobSockConnectInterval);
     delete mobSockConnectInterval;
@@ -353,7 +349,7 @@ var lateCount = 0;
 
 setInterval(function() {
   if (process.send) {
-    process.send({early:earlyCount,late:lateCount});
+    process.send({cmd:"stats",stats:{early:earlyCount,late:lateCount}});
   }
   //log('Actual: '+Math.round(500/lateCount)+' Early: '+earlyCount);
   earlyCount = 0;
@@ -390,3 +386,4 @@ function mobSockWrite(source) {
     log(err);
   }
 }
+
