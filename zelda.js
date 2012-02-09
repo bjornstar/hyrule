@@ -119,13 +119,95 @@ function generateFairyMD5(exxnt, filename) {
     var newfairy = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.fairy.md5 = crypto.createHash('md5').update(newfairy).digest('hex');
     hyrule.fairy.code = newfairy;
+    if (exxnt=="change") {
+      for (worker in hyrule.workers) {
+        hyrule.workers[worker].send({cmd:"fairymd5",md5:hyrule.fairy.md5});
+        hyrule.workers[worker].send({cmd:"fariycode",code:hyrule.fairy.code});
+      }
+    }
     log(' Fairy MD5: '+hyrule.fairy.md5);
     delete hyrule.fairy.md5inprogress;
   });
 }
 
-if (cluster.isMaster) { // The master keeps track of the files and the workers.
+function handleMessageFromWorker(msg) {
+  switch (msg.cmd) {
+    case "fairycode":
+      this.send({cmd:"fairycode",code:hyrule.fairy.code});
+      break;
+    case "fairymd5":
+      this.send({cmd:"fairymd5",md5:hyrule.fairy.md5});
+      break;
+    case "moblinmd5":
+      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
+      break;
+    case "moblincode":
+      this.send({cmd:"moblincode",code:hyrule.moblin.code});
+      break;
+    case "online":
+      this.send({cmd:"fairycode",code:hyrule.fairy.code});
+      this.send({cmd:"fairymd5",md5:hyrule.fairy.md5});
+      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
+      this.send({cmd:"moblincode",code:hyrule.moblin.code});
+      break;
+    case "earlyOut":
+      cluster.earlyOuts++;
+      this.earlyOuts++;
+      break;
+    case "dbHit":
+      cluster.dbHits++;
+      this.dbHits++;
+      break;
+    case "queryServer":
+      break;
+    case "connected":
+      cluster.openSockets++;
+      this.sockets.push(msg.socketid);
+      break;
+    case "exploded":
+      if (this.sockets.indexOf(msg.socketid)==-1) {
+        return;
+      }
+      this.sockets.splice(this.sockets.indexOf(msg.socketid),1);
+      cluster.openSockets--;
+      break;
+    case "closed":
+      if (this.sockets.indexOf(msg.socketid)==-1) {
+        return;
+      }
+      this.sockets.splice(this.sockets.indexOf(msg.socketid),1);
+      cluster.openSockets--;
+      break;
+    case "timeouted":
+      if (this.sockets.indexOf(msg.socketid)==-1) {
+        return;
+      }
+      this.sockets.splice(this.sockets.indexOf(msg.socketid),1);
+      cluster.openSockets--;
+      break;
+    case "ended":
+      if (this.sockets.indexOf(msg.socketid)==-1) {
+        return;
+      }
+      this.sockets.splice(this.sockets.indexOf(msg.socketid),1);
+      cluster.openSockets--;
+      break;
+    case "machineid":
+      this.machines[msg.socketid] = msg.machineid;
+      break;
+    default:
+      log(msg);
+  }
+}
 
+function handleMasterExit() {
+  log("exit event fired.");
+  for (worker in hyrule.workers) {
+    hyrule.workers[worker].send({cmd:"exit"});
+  }
+}
+
+if (cluster.isMaster) { // The master keeps track of the files and the workers.
   hyrule.workers = new Array();
   cluster.earlyOuts = 0;
   cluster.dbHits = 0;
@@ -145,6 +227,7 @@ if (cluster.isMaster) { // The master keeps track of the files and the workers.
     worker.earlyOuts = 0;
     worker.dbHits = 0;
     worker.sockets = new Array();
+    worker.machines = new Object();
 
     worker.on('message', handleMessageFromWorker);
     worker.on('death', function workerOnDeath(worker) {
@@ -154,15 +237,17 @@ if (cluster.isMaster) { // The master keeps track of the files and the workers.
 
   log("I am the master!");
 
+  process.on("exit", handleMasterExit);
+
   var lovelyDataInterval = setInterval(showMeTheData, 1000);
   return;
 }
 
+// Everything below here is for the workers.
+
 process.on("message", handleMessageFromMaster);
 
 log("I am a worker!");
-
-// Everything below here is for the workers.
 
 var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
 var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
@@ -177,67 +262,25 @@ dbHyrule.open(function() {
 
 function handleMessageFromMaster(msg) {
   switch (msg.cmd) {
+    case "fairymd5":
+      hyrule.fairy.md5=msg.md5;
+      break;
+    case "fairycode":
+      hyrule.fairy.code=msg.code;
+      break;
     case "moblinmd5":
-      log("NEW MD5!!!!!!!!!!!!!!!!!!");
       hyrule.moblin.md5=msg.md5;
       break;
     case "moblincode":
-      log("NEW CODE!!!!!!!!!!!!!!!!");
       hyrule.moblin.code=msg.code;
       break;
-    default:
-      log(msg);
-  }
-}
-
-function handleMessageFromWorker(msg) {
-  if (msg.connected!=null) {
-    cluster.openSockets++;
-    this.sockets.push(msg.connected);
-    return;
-  }
-  if (msg.closed!=null) {
-    if (this.sockets.indexOf(msg.closed)==-1) {
-      return;
-    }
-    this.sockets.splice(this.sockets.indexOf(msg.closed),1);
-    cluster.openSockets--;
-    return;
-  }
-  if (msg.timeouted!=null) {
-    if (this.sockets.indexOf(msg.timeouted)==-1) {
-      return;
-    }
-    this.sockets.splice(this.sockets.indexOf(msg.timeouted),1);
-    cluster.openSockets--;
-    return;
-  }
-  switch (msg.cmd) {
-    case "moblinmd5":
-      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
-      break;
-    case "moblincode":
-      this.send({cmd:"moblincode",code:hyrule.moblin.code});
-      break;
-    case "online":
-      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
-      this.send({cmd:"moblincode",code:hyrule.moblin.code});
-      break;
-    case "earlyOut":
-      cluster.earlyOuts++;
-      this.earlyOuts++;
-      break;
-    case "dbHit":
-      cluster.dbHits++;
-      this.dbHits++;
-      break;
-    case "queryServer":
+    case "exit":
+      process.exit();
       break;
     default:
       log(msg);
   }
 }
-
 
 var defaultPause = 50;
 var zeldaExpress = express.createServer();
@@ -246,6 +289,10 @@ function Client(mac) {
   var self = this; //You have to do this so you can reference these things later.
   var machine;
   var start = new Date();
+
+  if (mac==undefined) {
+    throw new Error('undefined mac');
+  }
 
   this.mac = mac.toLowerCase();
   var findObject = new Object();
@@ -259,38 +306,50 @@ function Client(mac) {
   this.taskOut = {task:{pause:defaultPause}}; //,_id:new ObjectID(),created:new Date()}; // This is the default task.
 
   function getMachines() {
-  cMachines.findAndModify(
-    self.findObject,
-    [],
-    {'$set':{'lastseen':new Date(),'alive':true}, '$inc':{'timesseen':1}},
-    {'new':false, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'created':1}},
-    function(famErr, famMachine) {
-    if (famErr && !famErr.ok) {
-      log('Error in findAndModify');
-      self.res.json(self.taskOut);
-      delete inProgress[self.req.params.mac];
-      return;
-    }
-    if (famMachine==null) {
-      log('Could not find the machine.');
-      self.res.json(self.taskOut);
-      delete inProgress[self.req.params.mac];
-      return;
-    }
-    self.machine = famMachine;
-    if (!self.machine.created || !self.machine.jobs) {
-      if (!self.machine.created) {
-        self.machine.created = new Date();
-      }
-      if (!self.machine.jobs) {
-        self.machine.jobs = new Array();
-      }
-      cMachines.update(self.findObject,{'$set':{'created':new Date(),'jobs':new Array()}},function() {});
-    }
+    var currentLastSeen = new Date();
+    cMachines.findAndModify(
+      self.findObject,
+      [],
+      {'$set':{'lastseen':currentLastSeen,'alive':true}, '$inc':{'timesseen':1}},
+      {'new':false, 'upsert':true, 'fields': {'jobs':{'$slice':5},'jobs.tasks':{'$slice':5},'lastseen':1}},
+      function(famErr, famMachine) {
+        if (famErr && !famErr.ok) {
+          log('Error in findAndModify');
+          self.res.json(self.taskOut);
+          delete inProgress[self.req.params.mac];
+          return;
+        }
+
+        if (famMachine==null) {
+          log('Could not find the machine.');
+          self.res.json(self.taskOut);
+          delete inProgress[self.req.params.mac];
+          return;
+        }
+
+        self.machine = famMachine;
+
+        var previousLastSeen = self.machine.lastseen ? self.machine.lastseen : currentLastSeen;
+
+        self.machine.lastseen = currentLastSeen;
+        self.machine.timesseen++;
+
+// Our actual latency ;)
+//log(currentLastSeen.getTime()-previousLastSeen.getTime());
+
+        if (!self.machine.jobs) {
+          var updateObject = new Object();
+          updateObject['$set'] = new Object();
+
+          self.machine.jobs = new Array();
+          updateObject['$set'].jobs = new Array();
+
+          cMachines.update(self.findObject,updateObject,function() {});
+        }
 
 // Every request from the client, we need to do up to here. ^^^^^^^^^^^^^
 
-    self.doyourthang();
+        self.doyourthang();
 
 // And after here. vvvvvvvvvv
      });
@@ -365,7 +424,13 @@ function Client(mac) {
       });
     }
 
-    process.send({cmd:'dbHit'});
+    try {
+      process.send({cmd:"dbHit"});
+    } catch (err) {
+      log('error sending dbhit to master.');
+      log(err);
+      process.exit();
+    }
     tStart.ts = self.req.params.ts;
     self.res.json(tStart); // We're not waiting for the save event to finish.
     delete inProgress[self.req.params.mac];
@@ -494,6 +559,12 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
 			}
 		});
 	}
+  function deadThang() {
+    var updateObject = new Object();
+    updateObject['$set'] = new Object();
+    updateObject['$set'].alive = false;
+    cMachines.update(self.findObject,updateObject);
+  }
 
   function task(req, res) {
     self.req = req;
@@ -523,9 +594,18 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
     getMachines();
   }
 
+  function dead(req, res) {
+    self.req = req;
+    self.res = res;
+    self.start = new Date();
+
+    deadThang();
+  }
+
   this.task = task;
   this.pass = pass;
   this.fail = fail;
+  this.dead = dead;
 
   return this;
 }
@@ -534,52 +614,52 @@ var inProgress = new Object();
 var lastOverRun = new Date();
 
 zeldaExpress.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', function(req, res){
-	var reqTime = new Date();
-	if (inProgress[req.params.mac]) {
-		inProgress[req.params.mac]++;
-		if (inProgress[req.params.mac] >= 3) {
-			lastOverRun = new Date();
-		}
-		if (inProgress[req.params.mac] >= 10) {
-			log('THE BRAKES!');
-			log(inProgress);
-			defaultPause +=5;
-			inProgress[req.params.mac] = 1;
-		}
-		res.json({task:{pause:defaultPause}});
-		return;
-	}
+  var reqTime = new Date();
+  if (inProgress[req.params.mac]) {
+    inProgress[req.params.mac]++;
+    if (inProgress[req.params.mac] >= 3) {
+      lastOverRun = new Date();
+    }
+    if (inProgress[req.params.mac] >= 10) {
+      log('THE BRAKES!');
+      log(inProgress);
+      defaultPause +=5;
+      inProgress[req.params.mac] = 1;
+    }
+    res.json({task:{pause:defaultPause}});
+    return;
+  }
 
-	if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
-		lastOverRun = new Date();
-		defaultPause-=5;
-	}
-	inProgress[req.params.mac] = new Object();
-	inProgress[req.params.mac] = 1;
-	var zCurrent = new Client(req.params.mac);
-	zCurrent.task(req, res);
+  if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 10) {
+    lastOverRun = new Date();
+    defaultPause-=5;
+  }
+  inProgress[req.params.mac] = new Object();
+  inProgress[req.params.mac] = 1;
+  var zCurrent = new Client(req.params.mac);
+  zCurrent.task(req, res);
 });
 
 zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
-	if (inProgress[req.params.mac]) {
-		res.json({task:{pause:defaultPause}});
-		overRun++;
-		return;
-	}
-	var zCurrent = new Client(req.params.mac);
-	zCurrent.pass(req, res);
+  if (inProgress[req.params.mac]) {
+    res.json({task:{pause:defaultPause}});
+    overRun++;
+    return;
+  }
+  var zCurrent = new Client(req.params.mac);
+  zCurrent.pass(req, res);
 });
 
 zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
-	if (inProgress[req.params.mac]) {
-		res.json({task:{pause:defaultPause}});
-		overRun++;
-		return;
-	}
-	log('got a fail');
-	log(req.params.taskid);
-	var zCurrent = new Client(req.params.mac);
-	zCurrent.fail(req, res);
+  if (inProgress[req.params.mac]) {
+    res.json({task:{pause:defaultPause}});
+    overRun++;
+    return;
+  }
+  log('got a fail');
+  log(req.params.taskid);
+  var zCurrent = new Client(req.params.mac);
+  zCurrent.fail(req, res);
 });
 
 zeldaExpress.get('/version', function(req,res) {
@@ -631,16 +711,37 @@ function zelOnCreate(zelSock) {
   zelSock.on('timeout', zelSockOnTimeout);
 }
 
+function dowhatnow(context,message) {
+  context.socketid = process.pid+'s'+context.id;
+//  log(context.socketid+' '+message+'.');
+  try {
+    process.send({cmd:message,socketid:this.socketid});
+  } catch (err) {
+    log('error sending message to master.');
+    log(err);
+    process.exit();
+  }
+  if (message==="connected") {
+    return;
+  }
+  if (context.mac===undefined) {
+    //log(context.socketid+" "+message+" before machineid assigned.");
+    return;
+  }
+  var zCurrent = new Client(context.mac);
+  zCurrent.dead();
+}
+
 function zelSockOnConnect() {
-  process.send({connected:process.pid+'s'+this.id});
+  dowhatnow(this,"connected");
 }
 
 function zelSockOnClose() {
-  process.send({closed:process.pid+'s'+this.id});
+  dowhatnow(this,"closed");
 }
 
 function zelSockOnTimeout() {
-  process.send({timeouted:process.pid+'s'+this.id});
+  dowhatnow(this,"timeouted");
 }
 
 var pdTs = 0;
@@ -670,12 +771,23 @@ function zelSockOnData(incomingdata) {
     try {
       var moblinData = JSON.parse(chunks[chunk]);
     } catch (err) {
+      log('Error parsing moblin data.');
       log(err);
       return;
     }
 
     this.send = responseObjectSend;
     this.json = responseObjectJSON;
+    if (this.mac == undefined) {
+      try {
+        process.send({cmd:"machineid",machineid:moblinData.params.mac,socketid:this.socketid});
+      } catch (err) {
+        log('error sending machineid to master.');
+        log(err);
+        process.exit();
+      }
+    }
+    this.mac  = moblinData.params.mac;
     
     var reqTime = new Date();
     var reqTS = reqTime.getTime();
@@ -692,7 +804,13 @@ function zelSockOnData(incomingdata) {
         defaultPause +=5;
         braked=true;
       }
-      process.send({cmd:'earlyOut'});
+      try {
+        process.send({cmd:"earlyOut"});
+      } catch (err) {
+        log('error sending earlyOut to master.');
+        log(err);
+        process.exit();
+      }
       this.json({task:{pause:defaultPause},ts:moblinData.params.ts,early:true});
       continue;
     }
@@ -715,7 +833,7 @@ function zelSockOnData(incomingdata) {
  
 function responseObjectSend(out) {
   if (this.destroyed||this.readyState=='closed') {
-    log('zelSock'+this.id+' is dead.');
+    //log('zelSock'+this.id+' is dead.');
     return;
   }
   
@@ -730,7 +848,7 @@ function responseObjectSend(out) {
 function responseObjectJSON(out) {
   var output = JSON.stringify(out)
   if (this.destroyed||this.readyState=='closed') {
-    log('zelSock'+this.id+' is dead.');
+    //log('zelSock'+this.id+' is dead.');
     return;
   }
   try {
@@ -742,10 +860,11 @@ function responseObjectJSON(out) {
 }
 
 function zelSockOnEnd() {
-  log('A moblin disconnected.');
+//  dowhatnow(this,"ended");
 }
 
 function zelSockOnError(socketException) {
+//  dowhatnow(this,"exploded");
   handleSocketError(socketException);
 }
 
@@ -756,10 +875,13 @@ zelServer.listen(config.zelda.socket.port, function zeldaSocketListen() {
 function handleSocketError(socketException) {
   switch(socketException.code) {
     case 'ECONNRESET':
-      log('A moblin crashed.');
+      //log('A moblin crashed.');
       break;
     case 'ECONNREFUSED':
       log('Try to repro this lol.');
+      break;
+    case 'EPIPE':
+      //log('Socket closed before write.'); // handled already.
       break;
     default:
       log(socketException);

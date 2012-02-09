@@ -77,6 +77,7 @@ function socketOnDisconnect() {
 function socketOnDashStart() {
   log('Client '+this.id+' requested dashstart.');
   socketClients[this.id].prevTimesseen = 0;
+  socketClients[this.id].prevLive = new Object();
   socketClients[this.id].frequency = defaultFrequency;
   socketClients[this.id].socketInterval = setInterval(dashPush, defaultFrequency, this);
 }
@@ -87,35 +88,70 @@ function dashPush(dSocket) {
   if (dashInProgress[dSocket.id]) {
     return;
   }
+
+
   var pStart = new Date();
-  var yesterday = new Date(pStart.getTime()-24*60*60*1000);
-  dbMachines.find({lastseen:{'$gt':yesterday}},{timesseen:1}).sort({_id:-1}).toArray( function(errFind, rMachines) {
-    if (!socketClients[dSocket.id]) {
+  dashInProgress[dSocket.id] = pStart.getTime();
+
+  var secondsago = 10;
+  var thispointintime = new Date(pStart.getTime()-secondsago*1000);
+
+  var dashCurrent = socketClients[dSocket.id];
+
+  var findObject = new Object();
+  findObject['$or'] = new Array();
+  findObject['$or'].push({alive:true});
+  findObject['$or'].push({lastseen:{'$gt':thispointintime}});
+
+  dbMachines.find(findObject,{timesseen:1, alive:1}).toArray( function(errFind, rMachines) {
+    if (!socketClients[dSocket.id]) { // Don't do anything if socket is already closed.
       return;
     }
 
-    var output;
     var totalTimesseen = 0;
+    var liveMachines = 0;
+    var liveTimesseen = 0;
+    var prevLiveTimesseen = 0;
+    var currentLive = new Object();
 
     for (rMachine in rMachines) {
       var cMachine = rMachines[rMachine];
       totalTimesseen += cMachine.timesseen;
+      if (cMachine.alive) {
+        liveMachines++;
+        if (dashCurrent.prevLive[cMachine._id]) {
+          prevLiveTimesseen += dashCurrent.prevLive[cMachine._id];
+        }
+        liveTimesseen += cMachine.timesseen;
+        currentLive[cMachine._id] = cMachine.timesseen;
+      }
     }
 
+    var pMid = new Date();
     var output = new Object();
 
-    output.dashUsers = socketClients.length;
-    output.dashFrequency = socketClients[dSocket.id].frequency;
+    output.liveMachines = liveMachines;
+    output.dashElapsed = pMid.getTime()-socketClients[dSocket.id].prevPush;
     output.totalUpdatecount = totalTimesseen;
-    output.deltaUpdatecount = totalTimesseen - socketClients[dSocket.id].prevTimesseen;
-    if (output.deltaUpdatecount<totalTimesseen) {
-      output.usecPerClient = Math.floor(10*output.dashFrequency / output.deltaUpdatecount);
-      output.updatesPerSecond = Math.floor(output.deltaUpdatecount * 1000 / output.dashFrequency) ;
+    if (prevLiveTimesseen) {
+      output.deltaLive = liveTimesseen - prevLiveTimesseen;
+      output.updatesPerSecond = Math.floor(liveTimesseen / secondsago);
+      output.usecPerClient = Math.floor(output.updatesPerSecond / output.liveMachines);
+    } else {
+      output.deltaLive = 0;
+      output.updatesPerSecond = 0;
+      output.usecPerClient = 0;
     }
     var pEnd = new Date();
-    log(pEnd.getTime()-pStart.getTime());
+    log((pEnd.getTime()-pStart.getTime())+' '+(pMid.getTime()-pStart.getTime()));
+
     dSocket.emit('dash', output);
+
+    socketClients[dSocket.id].prevPush = dashInProgress[dSocket.id];
     socketClients[dSocket.id].prevTimesseen = totalTimesseen;
+    socketClients[dSocket.id].prevLiveTimesseen = liveTimesseen;
+    socketClients[dSocket.id].prevLive = currentLive;
+
     delete dashInProgress[dSocket.id];
   });
 }

@@ -11,7 +11,7 @@ var vm      = require("vm");
 
 var defaultConfig = new Object();
 defaultConfig.zelda = new Object();
-defaultConfig.zelda.http = {"host":"localhost","port":4000};
+defaultConfig.zelda.http = {"host":"localhost","port":3000};
 
 if (config===undefined) {
   var config = defaultConfig;
@@ -27,9 +27,6 @@ hyrule.fairies = new Array();
 hyrule.fairy.config = new Object();
 hyrule.fairy.config.useVM = true;
 hyrule.fairy.config.useFile = false;
-
-//var fairy = hyrule.fairy;
-//fairy.readyState = "starting";
 
 var parallelMoblins = 1;
 var outofdate = false;
@@ -81,7 +78,12 @@ if (cluster.isMaster) { // The master keeps an eye on who is running what. It do
   contextMoblin.setInterval = setInterval;
 
   process.on("message", handleMessageFairy);
-  process.send({cmd:"Give me a moblin"}); 
+  try {
+    process.send({cmd:"Give me a moblin"}); 
+  } catch (err) {
+    log(err);
+    process.exit();
+  }
   setTimeout(process.exit, Math.round(Math.random()*10000)); // ChaosMonkey!
 }
 
@@ -91,7 +93,12 @@ function handleMessageMaster(data) {
       log('fairy.'+this.pid+' was born.');
       break;
     case "Give me a moblin":
-      this.send({moblin:{code:hyrule.moblin.code,script:hyrule.moblin.script,md5:hyrule.moblin.md5}});
+      try {
+        this.send({moblin:{code:hyrule.moblin.code,script:hyrule.moblin.script,md5:hyrule.moblin.md5}});
+      } catch (err) {
+        log(err);
+        process.exit();
+      }
       break;
     case "stats":
       this.earlyCount += data.stats.early;
@@ -183,7 +190,12 @@ function spawnMoblin() {
   log("Moblin."+newMoblin.pid+" launched.");
 
   process.on("exit", function () {
-    newMoblin.send({fairy:"Goodbye."});
+    try {
+      newMoblin.send({fairy:"Goodbye."});
+    } catch (err) {
+      log(err);
+      process.exit();
+    }
   });
 
   newMoblin.md5 = hyrule.moblin.md5;

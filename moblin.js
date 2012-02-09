@@ -223,7 +223,7 @@ function digestTask(chunk, taskStart) {
   if(moblin.eatCount===1) {
     if (process.send) {
       process.send({moblin:"I handled my first task."});
-   }
+    }
   }
 
   var taskEnd = new Date();
