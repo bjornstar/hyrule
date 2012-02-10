@@ -87,8 +87,8 @@ function generateObjectId() {
   return nameNew;
 }
 
-log("Welcome to Hyrule.");
-log("I dub thee moblin_"+moblin.name+".");
+//log("Welcome to Hyrule.");
+//log("I dub thee moblin_"+moblin.name+".");
 
 var zeldaTask = {
   host: config.zelda.http.host,

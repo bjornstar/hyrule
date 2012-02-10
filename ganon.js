@@ -16,9 +16,9 @@ function log(data) {
 }
 
 dbHyrule.open(function() {
-        log('Welcome to Hyrule.');
-        var timeDBOpen = new Date();
-        log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
+  log('Welcome to Hyrule.');
+  var timeDBOpen = new Date();
+  log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
 
 
@@ -55,6 +55,10 @@ function idleTimeout() {
   findObject.lastseen['$lt'] = aminuteago;
 
   var setObject = {'$set':{alive:false}};
+
+//  cMachines.find(findObject).toArray(function(err, data) {
+//    log(data);
+//  });
 
   cMachines.update(findObject, setObject, {safe:true, multi:true, upsert:false}, function () {
     var end = new Date();

@@ -76,7 +76,6 @@ function socketOnDisconnect() {
 
 function socketOnDashStart() {
   log('Client '+this.id+' requested dashstart.');
-  socketClients[this.id].prevTimesseen = 0;
   socketClients[this.id].prevLive = new Object();
   socketClients[this.id].frequency = defaultFrequency;
   socketClients[this.id].socketInterval = setInterval(dashPush, defaultFrequency, this);
@@ -108,7 +107,6 @@ function dashPush(dSocket) {
       return;
     }
 
-    var totalTimesseen = 0;
     var liveMachines = 0;
     var liveTimesseen = 0;
     var prevLiveTimesseen = 0;
@@ -116,7 +114,6 @@ function dashPush(dSocket) {
 
     for (rMachine in rMachines) {
       var cMachine = rMachines[rMachine];
-      totalTimesseen += cMachine.timesseen;
       if (cMachine.alive) {
         liveMachines++;
         if (dashCurrent.prevLive[cMachine._id]) {
@@ -132,15 +129,14 @@ function dashPush(dSocket) {
 
     output.liveMachines = liveMachines;
     output.dashElapsed = pMid.getTime()-socketClients[dSocket.id].prevPush;
-    output.totalUpdatecount = totalTimesseen;
     if (prevLiveTimesseen) {
       output.deltaLive = liveTimesseen - prevLiveTimesseen;
-      output.updatesPerSecond = Math.floor(liveTimesseen / secondsago);
-      output.usecPerClient = Math.floor(output.updatesPerSecond / output.liveMachines);
+      output.updatesPerSecond = Math.floor(output.deltaLive * 1000 / output.dashElapsed);
+      output.usecPerClient = Math.floor(1000000 / output.updatesPerSecond / output.liveMachines);
     } else {
       output.deltaLive = 0;
       output.updatesPerSecond = 0;
-      output.usecPerClient = 0;
+      output.msPerClient = 0;
     }
     var pEnd = new Date();
     log((pEnd.getTime()-pStart.getTime())+' '+(pMid.getTime()-pStart.getTime()));
@@ -148,7 +144,6 @@ function dashPush(dSocket) {
     dSocket.emit('dash', output);
 
     socketClients[dSocket.id].prevPush = dashInProgress[dSocket.id];
-    socketClients[dSocket.id].prevTimesseen = totalTimesseen;
     socketClients[dSocket.id].prevLiveTimesseen = liveTimesseen;
     socketClients[dSocket.id].prevLive = currentLive;
 

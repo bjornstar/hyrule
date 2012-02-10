@@ -31,7 +31,8 @@ try {
   config = require(configFile); // This holds our configuration data.
   log('Using '+configFile);
 } catch (err) {
-  config = require(configFileDefault);
+  configFile = configFileDefault;
+  config = require(configFile);
   log('Using default config.');
 }
 
@@ -61,16 +62,26 @@ function showMeTheData() {
 
 var newmoblin = '';
 var newfairy = '';
+var newconfig = '';
 
 function configWatchEvent(exxnt, filename) {
-  if (exxnt==='rename') {
-    return;
-  }
+  hyrule.config.watcher.close();
+  hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
+
   if (exxnt==='change') {
     log('config file has been modified.');
   }
-  generateMoblinMD5();
-  generateFairyMD5();
+
+  fs.readFile(configFile, 'utf8', function(err,data) {
+    if (err) throw err;
+    try {
+      config = JSON.parse(data);
+    } catch (err) {
+      log('Error parsing config file.');
+    }
+    generateMoblinMD5();
+    generateFairyMD5();
+  });
 }
 
 function generateMoblinMD5(exxnt, filename) {
@@ -104,25 +115,28 @@ function generateMoblinMD5(exxnt, filename) {
 }
 
 function generateFairyMD5(exxnt, filename) {
-  if (exxnt==='rename') {
-    return;
-  }
+  hyrule.fairy.watcher.close();
+  hyrule.fairy.watcher = fs.watch('./fairy.js', generateFairyMD5);
+
   if (hyrule.fairy.md5inprogress) {
     return;
   }
+
   hyrule.fairy.md5inprogress = true;
+
   if (exxnt==='change') {
     log('fairy.js has been modified.');
   }
+
   fs.readFile('./fairy.js', 'utf8', function(err,data) {
     if (err) throw err;
-    var newfairy = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
+    newfairy = 'var config = new Object();\nconfig.zelda = '+JSON.stringify(config.zelda)+';\n\n'+data;
     hyrule.fairy.md5 = crypto.createHash('md5').update(newfairy).digest('hex');
     hyrule.fairy.code = newfairy;
     if (exxnt=="change") {
       for (worker in hyrule.workers) {
         hyrule.workers[worker].send({cmd:"fairymd5",md5:hyrule.fairy.md5});
-        hyrule.workers[worker].send({cmd:"fariycode",code:hyrule.fairy.code});
+        hyrule.workers[worker].send({cmd:"fairycode",code:hyrule.fairy.code});
       }
     }
     log(' Fairy MD5: '+hyrule.fairy.md5);
@@ -207,11 +221,40 @@ function handleMasterExit() {
   }
 }
 
+function spawnWorkers() {
+  while (hyrule.workers.length < os.cpus().length) {
+    spawnWorker();
+  }
+}
+
+function spawnWorker() {
+  var worker = cluster.fork();
+  hyrule.workers.push(worker);
+
+  worker.earlyOuts = 0;
+  worker.dbHits = 0;
+  worker.sockets = new Array();
+  worker.machines = new Object();
+
+  worker.on('message', handleMessageFromWorker);
+}
+
+function handleWorkerDeath(worker) {
+  log('worker '+worker.pid+ ' died.');
+  hyrule.workers.splice(hyrule.workers.indexOf(worker),1);
+  cluster.openSockets -= worker.sockets.length;
+  spawnWorkers();
+}
+
 if (cluster.isMaster) { // The master keeps track of the files and the workers.
   hyrule.workers = new Array();
   cluster.earlyOuts = 0;
   cluster.dbHits = 0;
   cluster.openSockets = 0;
+  
+  cluster.on('death', function workerDeath(worker) {
+    handleWorkerDeath(worker)
+  });
 
   hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
   hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
@@ -220,20 +263,7 @@ if (cluster.isMaster) { // The master keeps track of the files and the workers.
   generateMoblinMD5('launch', null);
   generateFairyMD5('launch', null);
 
-  for (var i = 0;i < os.cpus().length; i++) {
-    var worker = cluster.fork();
-
-    hyrule.workers.push(worker);
-    worker.earlyOuts = 0;
-    worker.dbHits = 0;
-    worker.sockets = new Array();
-    worker.machines = new Object();
-
-    worker.on('message', handleMessageFromWorker);
-    worker.on('death', function workerOnDeath(worker) {
-      log('worker '+worker.pid+ ' died.');
-    });
-  }
+  spawnWorkers();
 
   log("I am the master!");
 
@@ -249,15 +279,20 @@ process.on("message", handleMessageFromMaster);
 
 log("I am a worker!");
 
+
 var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
 var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
 var dbHyrule = new mongodb.Db(config.hyrule.database, serverHyrule, {}); // This is our database
 var cMachines = new mongodb.Collection(dbHyrule, 'machines');
 
 dbHyrule.open(function() {
-  log('Welcome to Hyrule.');
   var timeDBOpen = new Date();
   log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
+
+  setTimeout(function chaosMonkey() {
+    log('The chaos monkey sends his regards.');
+    process.exit();
+  }, Math.random()*10000);
 });
 
 function handleMessageFromMaster(msg) {
@@ -800,7 +835,7 @@ function zelSockOnData(incomingdata) {
       }
       if (inProgress[moblinData.params.mac].length >= 10 && !braked) {
         log('THE BRAKES!');
-        log(inProgress);
+        //log(inProgress);
         defaultPause +=5;
         braked=true;
       }

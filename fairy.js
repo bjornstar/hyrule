@@ -11,7 +11,7 @@ var vm      = require("vm");
 
 var defaultConfig = new Object();
 defaultConfig.zelda = new Object();
-defaultConfig.zelda.http = {"host":"localhost","port":3000};
+defaultConfig.zelda.http = {"host":"localhost","port":4000};
 
 if (config===undefined) {
   var config = defaultConfig;
@@ -53,9 +53,6 @@ function log(data) {
   console.log("["+new Date().toISOString()+"] "+hyrule.appName+"."+process.pid+": "+util.inspect(data));
 }
 
-//areMoblinsAlive();
-//hyrule.areMoblinsAliveInterval = setInterval(areMoblinsAlive,1500);
-
 if (cluster.isMaster) { // The master keeps an eye on who is running what. It doesn't run a moblin.
   fs.readFile("fairy.js", "utf8", handleReadFairy);
   fs.readFile("moblin.js", "utf8", handleReadMoblin);
@@ -84,16 +81,17 @@ if (cluster.isMaster) { // The master keeps an eye on who is running what. It do
     log(err);
     process.exit();
   }
-  setTimeout(process.exit, Math.round(Math.random()*10000)); // ChaosMonkey!
+  setTimeout(function chaosMonkey() { log('The chaos monkey sends his regards.'); process.exit();}, Math.round(Math.random()*10000));
 }
 
 function handleMessageMaster(data) {
   switch (data.cmd) {
     case 'online':
-      log('fairy.'+this.pid+' was born.');
+      //log('fairy.'+this.pid+' was born.');
       break;
     case "Give me a moblin":
       try {
+        this.md5 = hyrule.moblin.md5;
         this.send({moblin:{code:hyrule.moblin.code,script:hyrule.moblin.script,md5:hyrule.moblin.md5}});
       } catch (err) {
         log(err);
@@ -105,7 +103,9 @@ function handleMessageMaster(data) {
       this.lateCount += data.stats.late;
       break;
     default:
-      if (data.moblin) {
+      if (data.moblin=="I handled my first task.") {
+        this.moblinOnline = true;
+        dothefairycheck();
         if (!hyrule.fairy.versionCheckInterval) {
           hyrule.fairy.versionCheckInterval = setInterval(moblinVersionCheck, hyrule.fairy.versionCheckRate);
         }
@@ -116,19 +116,35 @@ function handleMessageMaster(data) {
   }
 }
 
+function dothefairycheck() {
+  for (f in hyrule.fairies) {
+    if (hyrule.fairies[f].md5==undefined) {
+      try {
+        hyrule.fairies[f].send({cmd:"die"});
+      } catch (err) {
+        log(err);
+        process.exit();
+      }
+    }
+  }
+}
+
 function spawnFairies() {
   while (hyrule.fairies.length<parallelMoblins) {
-    var fairy = cluster.fork();
-    fairy.earlyCount = 0;
-    fairy.lateCount = 1;
-    hyrule.fairies.push(fairy);
-    fairy.on("message", handleMessageMaster);
+    spawnFairy();
   }
+}
+
+function spawnFairy() {
+  var fairy = cluster.fork();
+  fairy.earlyCount = 0;
+  fairy.lateCount = 1;
+  hyrule.fairies.push(fairy);
+  fairy.on("message", handleMessageMaster);
 }
     
 function handleMessageFairy(data) {
   if (data.moblin) {
-    log("got a moblin.");
     this.moblin = data.moblin;
     if (data.moblin.code) {
       log(this.moblin.md5);
@@ -138,6 +154,9 @@ function handleMessageFairy(data) {
     return;
   }
   switch (data.cmd) {
+    case "die":
+      process.exit();
+      break;
     default:
       log(this.pid+' '+data.cmd);
   }
@@ -145,21 +164,8 @@ function handleMessageFairy(data) {
 
 function handleFairyDeath(fairy) {
   hyrule.fairies.splice(hyrule.fairies.indexOf(fairy), 1);
-  log('fairy.'+fairy.pid+' died.');
+  //log('fairy.'+fairy.pid+' died.');
   spawnFairies();
-}
-
-function launchWhichMoblin() {
-  if (hyrule.fairy.config.useFile) {
-    fs.readFile("moblin.js", "utf8", handleReadFile);
-  }
-  if (hyrule.fairy.config.useVM) {
-    launchMoblin();
-  }
-}
-
-function launchMoblin() {
-
 }
 
 function handleReadFairy(err, data) {
@@ -306,65 +312,12 @@ function handleDownloadEnd(downloadedMoblin) {
   hyrule.moblin.code = downloadedMoblin;
   hyrule.moblin.script = vm.createScript(downloadedMoblin); 
 
-
   clearInterval(hyrule.fairy.versionCheckInterval);
   delete hyrule.fairy.versionCheckInterval;
 
-
-/*  fs.readFile("newmoblin.js", "utf8", function verifyNewMoblin(err, data) {
-    if (err) {
-      log("Problem reading newmoblin.js, trying again.");
-      if (!fairy.timeoutDownload) {
-        fairy.timeoutDownload = setTimeout(moblinDownload, 1000);
-        return;
-      }
-    }
-
-    var newMoblinMD5 = crypto.createHash("md5").update(data).digest("hex");
-    if (newMoblinMD5 != hyrule.remoteMD5) {
-      log("Problem with download, trying again.");
-      log(newMoblinMD5);
-      log(hyrule.remoteMD5);
-      if (!fairy.timeoutDownload) {
-        fairy.readyState = "downloading";
-        fairy.timeoutDownload = setTimeout(moblinDownload, 1000);
-        return;
-      }
-    }
-
-    outofdate = false;
-
-    for (moblinPID in hyrule.moblins) {
-      var updateMoblin = hyrule.moblins[moblinPID];
-      if (updateMoblin.stdin && !updateMoblin.stdin.destroyed && updateMoblin.md5!=hyrule.remoteMD5) {
-        updateMoblin.send({fairy: "Hold on a sec."});
-        updateMoblin.readyState = "paused";
-      }
-    }
-
-    fairy.readyState="verifying";
-
-    if (hyrule.moblins.length>parallelMoblins+1) {
-      log("Plenty of moblins around, not launching a new one.");
-      return;
-    } else {
-      log(hyrule.moblins.length+" moblins nearby, I can spawn a new one.");
-    }
-
-    log("Spawning a newmoblin.");
-    var newMoblin = fork("newmoblin.js");
-
-    newMoblin.md5 = newMoblinMD5;
-    newMoblin.on("message", handleMoblinMessage);
-    newMoblin.on("exit", handleMoblinExit);
-    newMoblin.earlyCount = 0;
-    newMoblin.lateCount = 1;
-    newMoblin.readyState = "starting";
-    hyrule.moblins[newMoblin.pid] = newMoblin;
-
-    //fairy.timeoutStartup = setTimeout(failedMoblinStartup, 1000); // This is probably bad too.
-    delete fairy.timeoutDownload;
-  });*/
+  if (hyrule.fairies.length<=parallelMoblins) {
+    spawnFairy();
+  }
 }
 
 function handleMoblinMessage(m) {
@@ -385,6 +338,7 @@ function handleMoblinMessage(m) {
       delete hyrule.moblins[this.pid]; 
       break;
     case "I handled my first task.":
+      log('ding ding ding!!!!!');
       if (hyrule.remoteMD5==undefined) {
         hyrule.fairy.readyState = "running";
         this.readyState = "running";
