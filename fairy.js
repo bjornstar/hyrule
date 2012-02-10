@@ -57,7 +57,7 @@ if (cluster.isMaster) { // The master keeps an eye on who is running what. It do
   fs.readFile("fairy.js", "utf8", handleReadFairy);
   fs.readFile("moblin.js", "utf8", handleReadMoblin);
 
-  spawnFairies();
+//  spawnFairies();
 
   cluster.on('death', handleFairyDeath); //define this once for the cluster.
 
@@ -111,20 +111,27 @@ function handleMessageMaster(data) {
         }
         break;
       }
-      console.log(data);
-      log(this.pid+' '+data.cmd);
+      if (data.moblin=="I died.") {
+        break;
+      }
+      log(this.pid+' '+data);
   }
 }
 
 function dothefairycheck() {
+  if (hyrule.fairies.length<parallelMoblins) {
+    spawnFairies();
+  }
+
   for (f in hyrule.fairies) {
-    if (hyrule.fairies[f].md5==undefined) {
-      try {
-        hyrule.fairies[f].send({cmd:"die"});
-      } catch (err) {
-        log(err);
-        process.exit();
-      }
+    if (hyrule.fairies[f].md5==hyrule.remoteMD5) {
+      return;
+    }
+    try {
+      hyrule.fairies[f].send({cmd:"die"});
+    } catch (err) {
+      log(err);
+      process.exit();
     }
   }
 }
@@ -164,7 +171,6 @@ function handleMessageFairy(data) {
 
 function handleFairyDeath(fairy) {
   hyrule.fairies.splice(hyrule.fairies.indexOf(fairy), 1);
-  //log('fairy.'+fairy.pid+' died.');
   spawnFairies();
 }
 

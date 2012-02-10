@@ -101,7 +101,7 @@ function handleSocketError(socketException) {
   switch(socketException.code) {
     case "ECONNRESET":
       if (moblin.umbilicalCord) {
-        log("I saw Zelda die.");
+        //log("I saw Zelda die.");
         moblin.umbilicalCord = false;
         setHeartRate(moblin.heartRateDisconnected);
       }
@@ -210,6 +210,7 @@ function digestTask(chunk, taskStart) {
     tastyBits = JSON.parse(chunk);
   } catch (err) {
     log(err);
+    log(chunk);
     return;
   }
 
@@ -298,7 +299,7 @@ function mobSockOnTimeout() {
 }
 
 function mobSockOnClose(had_error) {
-  log("mobSock"+mobSock.id+" closed.");
+//  log("mobSock"+mobSock.id+" closed.");
   if (mobSockWriteInterval) {
     clearInterval(mobSockWriteInterval);
     delete mobSockWriteInterval;
@@ -372,7 +373,7 @@ function mobSockWrite(source) {
   ls = ts;
 
   if (mobSock.destroyed||mobSock.readyState=="closed") {
-    log("mobSock"+mobSock.id+" is dead.");
+    //log("mobSock"+mobSock.id+" is dead.");
     return;
   }
 

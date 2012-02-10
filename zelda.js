@@ -795,7 +795,6 @@ function zelSockOnData(incomingdata) {
   }
 
   var chunks = this.data.split(sepChar);
-  var defaultTask = "{\"task\":{\"pause\":\""+defaultPause+"\"},\"early\":true}";
   var braked = false;
 
   for (chunk in chunks) {
@@ -873,8 +872,7 @@ function responseObjectSend(out) {
   }
   
   try {
-    this.write(out);
-    this.write(String.fromCharCode(3));
+    this.write(out+String.fromCharCode(3));
   } catch (err) {
     //Socket closed.
   }
@@ -887,8 +885,7 @@ function responseObjectJSON(out) {
     return;
   }
   try {
-    this.write(output);
-    this.write(String.fromCharCode(3));
+    this.write(output+String.fromCharCode(3));
   } catch (err) {
     // Our socket closed.
   }
