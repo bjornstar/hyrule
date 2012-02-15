@@ -6,31 +6,36 @@
   <script src="/socket.io/socket.io.js"></script>
   <script type="text/javascript">
   <!--
+
 function draw () {
   var aCanvas = document.getElementById('a');
   var ctx = aCanvas.getContext('2d');
 
   var height = aCanvas.height;
-  var width = aCanvas.width;
-
-  var max = 400;
-  var scale = height/max;
+  var width = aCanvas.width-120;
+  var scaleDelta = height/(dashPump.max*1.2);
+  var scaleLive = height/(pumpLiveMachines.max*1.2)/4;
   var steps = 120;
   var step = width/(steps-1);
+
   // clear
-  ctx.clearRect(0,0,width,height);
+  ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
 
   // fill
   ctx.fillStyle = "#eee";
-  ctx.rect(0,0,width,height);
+  ctx.rect(0,0,aCanvas.width,aCanvas.height);
   ctx.fill();
+
+  ctx.fillStyle = "#333";
+  ctx.font = "sans-serif bold";
+  ctx.fillText(dashPump.data[120],width+10,height - dashPump.data[120]*scaleDelta+4);
 
   ctx.fillStyle = "rgba(64,64,64,0.5)";
   ctx.beginPath();
   ctx.moveTo(0, height);
   ctx.lineTo(0, dashPump.data[0]);
   for (var i=0;i<dashPump.data.length;i++) {
-    ctx.lineTo(i*step, height - dashPump.data[i]*scale);
+    ctx.lineTo(i*step, height - dashPump.data[i]*scaleDelta);
   }
   ctx.lineTo((dashPump.data.length-1)*step, height);
   ctx.closePath();
@@ -40,21 +45,25 @@ function draw () {
   ctx.lineWidth = 1.6;
   for (var j=0;j<dashPump.data.length;j++) {
     if (j) {
-      ctx.lineTo(j*step, height - dashPump.data[j]*scale);
+      ctx.lineTo(j*step, height - dashPump.data[j]*scaleDelta);
       ctx.closePath();
       ctx.stroke();
     }
     ctx.beginPath();
-    ctx.moveTo(j*step, height - dashPump.data[j]*scale);
+    ctx.moveTo(j*step, height - dashPump.data[j]*scaleDelta);
   }
 
   // liveMachines
+  ctx.fillStyle = "rgba(128,32,32,0.5)";
+  ctx.font = "sans-serif bold";
+  ctx.fillText(pumpLiveMachines.data[120],width+10,height - pumpLiveMachines.data[120]*scaleLive+4);
+
   ctx.fillStyle = "rgba(255,64,64,0.5)";
   ctx.beginPath();
   ctx.moveTo(0, height);
   ctx.lineTo(0, pumpLiveMachines.data[0]);
   for (var i=0;i<pumpLiveMachines.data.length;i++) {
-    ctx.lineTo(i*step, height - pumpLiveMachines.data[i]*scale);
+    ctx.lineTo(i*step, height - pumpLiveMachines.data[i]*scaleLive);
   }
   ctx.lineTo((dashPump.data.length-1)*step, height);
   ctx.closePath();
@@ -64,19 +73,45 @@ function draw () {
   ctx.lineWidth = 1.6;
   for (var j=0;j<pumpLiveMachines.data.length;j++) {
     if (j) {
-      ctx.lineTo(j*step, height - pumpLiveMachines.data[j]*scale);
+      ctx.lineTo(j*step, height - pumpLiveMachines.data[j]*scaleLive);
       ctx.closePath();
       ctx.stroke();
     }
     ctx.beginPath();
-    ctx.moveTo(j*step, height - pumpLiveMachines.data[j]*scale);
+    ctx.moveTo(j*step, height - pumpLiveMachines.data[j]*scaleLive);
   }
 
 }
 
 var Datapump = function() {
+  this.max = 1;
+  this.min = 0;
   this.data = [ 0 ];
   var index = 0;
+  this.push = function(data) {
+    if (data>this.max) {
+      this.max = data;
+    }
+    if (data<this.min) {
+      this.min = data;
+    }
+    this.data.push(data);
+  }
+  this.shift = function() {
+    var shiftval = this.data.shift();
+    if (this.max==shiftval) {
+      var newmax = 1;
+      for (val in this.data) {
+        if (this.data[val]>newmax) {
+          newmax = this.data[val];
+        }
+      }
+      this.max = newmax;
+    }
+    if (this.min==shiftval) {
+
+    }
+  }
   this.single = function() {
     index += 1;
     if (index > this.data.length) {
@@ -115,12 +150,12 @@ socket.on('connect', function() {
 socket.on('dash', dash);
 
 function dash(data) {
-  dashPump.data.shift();
-  dashPump.data.push(data.deltaLive);
-  pumpLiveMachines.data.shift()
-  pumpLiveMachines.data.push(data.liveMachines);
+  dashPump.shift();
+  dashPump.push(data.deltaLive);
+  pumpLiveMachines.shift()
+  pumpLiveMachines.push(data.liveMachines);
   draw();
-  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n');
+//  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n');
 }
 
 
@@ -129,6 +164,12 @@ $(document).ready(function() {
 });
   -->
   </script>
+  <style type="text/css">
+    body,html{
+      margin:0;
+      padding:0;
+    }
+  </style>
   <title>Hyrule</title>
 </head>
 <body>

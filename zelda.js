@@ -289,10 +289,7 @@ dbHyrule.open(function() {
   var timeDBOpen = new Date();
   log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 
-  setTimeout(function chaosMonkey() {
-    log('The chaos monkey sends his regards.');
-    process.exit();
-  }, Math.random()*10000);
+//  setTimeout(function chaosMonkey() { log('The chaos monkey sends his regards.'); process.exit(); }, Math.random()*10000);
 });
 
 function handleMessageFromMaster(msg) {

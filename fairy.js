@@ -11,7 +11,7 @@ var vm      = require("vm");
 
 var defaultConfig = new Object();
 defaultConfig.zelda = new Object();
-defaultConfig.zelda.http = {"host":"localhost","port":4000};
+defaultConfig.zelda.http = {"host":"localhost","port":3000};
 
 if (config===undefined) {
   var config = defaultConfig;
@@ -81,7 +81,7 @@ if (cluster.isMaster) { // The master keeps an eye on who is running what. It do
     log(err);
     process.exit();
   }
-  setTimeout(function chaosMonkey() { log('The chaos monkey sends his regards.'); process.exit();}, Math.round(Math.random()*10000));
+//  setTimeout(function chaosMonkey() { log('The chaos monkey sends his regards.'); process.exit();}, Math.round(Math.random()*10000));
 }
 
 function handleMessageMaster(data) {
@@ -464,7 +464,13 @@ function handleSocketError(socketException) {
       break;
     case "ECONNREFUSED":
       if (hyrule.fairy.umbilicalCord||hyrule.fairy.umbilicalCord===undefined) {
-        log("I can't find Zelda.");
+        log("I can not find Zelda.");
+        hyrule.fairy.umbilicalCord = false;
+      }
+      break;
+    case "Unknown system errno 10060":
+      if (hyrule.fairy.umbilicalCord||hyrule.fairy.umbilicalCord===undefined) {
+        log("I can not find Zelda.");
         hyrule.fairy.umbilicalCord = false;
       }
       break;

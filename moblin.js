@@ -378,11 +378,10 @@ function mobSockWrite(source) {
   }
 
 
-  var output = JSON.stringify({params:{mac:moblin.name,ts:ts}});
+  var output = JSON.stringify({params:{mac:moblin.name,ts:ts}})+String.fromCharCode(3);
 
   try {
     mobSock.write(output);
-    mobSock.write(String.fromCharCode(3));
   } catch (err) {
     log(err);
   }
