@@ -44,7 +44,7 @@ fs.readFile('./package.json', 'utf8', function(err,data) {
 });
 
 function showMeTheData() {
-  log("Early Outs: "+cluster.earlyOuts+", Database Hits: "+cluster.dbHits+", Live Workers: "+hyrule.workers.length+", Open Sockets: "+cluster.openSockets);
+//  log("Early Outs: "+cluster.earlyOuts+", Database Hits: "+cluster.dbHits+", Live Workers: "+hyrule.workers.length+", Open Sockets: "+cluster.openSockets);
   cluster.earlyOuts = 0;
   cluster.dbHits = 0;
   var output1 = '';
@@ -56,8 +56,8 @@ function showMeTheData() {
     oW.earlyOuts = 0;
     oW.dbHits = 0;
   }
-  log(output1);
-  log(output2);
+//  log(output1);
+//  log(output2);
 }
 
 var newmoblin = '';
@@ -411,7 +411,7 @@ function Client(mac) {
       var jStart = self.machine.jobs[job];
 
       if (!jStart.started && jCount<1) {
-        var jStarted = new Date()
+        var jStarted = new Date();
         var jTimeout = new Date(jStarted.getTime() + jStart.duration);
         jStart.started = jStarted;
         jStart.timeout = jTimeout;
@@ -451,7 +451,7 @@ function Client(mac) {
         if (errSave) {
           log('errored: ' + JSON.stringify(tStart) + ' ' + new Date());
         } else {
-          // log('updated: ' + JSON.stringify(tStart) + ' ' + self.start.getTime() + ' ' + now.getTime());
+          log('updated: ' + JSON.stringify(updateObject));
         }
       });
     }

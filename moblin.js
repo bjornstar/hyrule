@@ -243,8 +243,20 @@ function digestTask(chunk, taskStart) {
     return;
   }
   
-  if(task.rdmsr!=null) {
-    log(tastyBits._id); // Ready to spawn tasks?
+  if(task.execpass!=null) {
+    log(tastyBits); // Ready to spawn tasks?
+    var commandLine = task.execpass.split(' ');
+    log(commandLine);
+    var moblinTask = spawn(commandLine.shift() + commandLine);
+    moblinTask.stdout.on("data", function (data) {
+      log("task: "+data);
+    });
+    moblinTask.stderr.on("data", function (data) {
+      log("task: "+data);
+    });
+    moblinTask.on("exit", function (code) {
+      log("task exited with code " + code);
+    });
   }
 }
 

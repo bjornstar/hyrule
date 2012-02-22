@@ -6,16 +6,20 @@
   <script src="/socket.io/socket.io.js"></script>
   <script type="text/javascript">
   <!--
+var steps = 20;
+var newData = false;
 
 function draw () {
+  if (!newData) {
+    return;
+  }
   var aCanvas = document.getElementById('a');
   var ctx = aCanvas.getContext('2d');
 
   var height = aCanvas.height;
-  var width = aCanvas.width-120;
+  var width = aCanvas.width-100;
   var scaleDelta = height/(dashPump.max*1.2);
   var scaleLive = height/(pumpLiveMachines.max*1.2)/4;
-  var steps = 120;
   var step = width/(steps-1);
 
   // clear
@@ -26,74 +30,97 @@ function draw () {
   ctx.rect(0,0,aCanvas.width,aCanvas.height);
   ctx.fill();
 
-  ctx.fillStyle = "#333";
-  ctx.font = "sans-serif bold";
-  ctx.fillText(dashPump.data[120],width+10,height - dashPump.data[120]*scaleDelta+4);
-
-  ctx.fillStyle = "rgba(64,64,64,0.5)";
-  ctx.beginPath();
-  ctx.moveTo(0, height);
-  ctx.lineTo(0, dashPump.data[0]);
-  for (var i=0;i<dashPump.data.length;i++) {
-    ctx.lineTo(i*step, height - dashPump.data[i]*scaleDelta);
+  drawSquigglies(dashPump);
+  for (mID in machines) {
+    if ($("#"+mID+"show").prop("checked")||$("#"+mID).hasClass("hover")) {
+      drawSquigglies(machines[mID]);
+    }
   }
-  ctx.lineTo((dashPump.data.length-1)*step, height);
+  drawSquigglies(pumpLiveMachines);
+  newData = false;
+}
+
+function drawSquigglies(pump) {
+  var aCanvas = document.getElementById('a');
+  var ctx = aCanvas.getContext('2d');
+
+  var height = aCanvas.height;
+  var width = aCanvas.width-100;
+  var scale = height/(pump.max*pump.scale);
+  var step = width/(steps-1);
+
+  ctx.fillStyle = "rgba("+pump.color[0]+","+pump.color[1]+","+pump.color[2]+",1)";
+  ctx.font = "sans-serif bold";
+  ctx.fillText(pump.data[steps-1],width+10,height - pump.data[steps-1]*scale+4);
+
+  ctx.fillStyle = "rgba("+pump.color[0]+","+pump.color[1]+","+pump.color[2]+",0.25)";
+  ctx.beginPath()
+  ctx.moveTo(0, height);
+  ctx.lineTo(0, pump.data[0]);
+  for (var i=0;i<pump.data.length;i++) {
+    ctx.lineTo(i*step, height - pump.data[i]*scale);
+  }
+  ctx.lineTo((pump.data.length-1)*step, height);
   ctx.closePath();
   ctx.fill();
   // stroke
-  ctx.strokeStyle = "#333";
+  ctx.strokeStyle = "rgba("+pump.color[0]+","+pump.color[1]+","+pump.color[2]+",0.75)";
   ctx.lineWidth = 1.6;
-  for (var j=0;j<dashPump.data.length;j++) {
+  for (var j=0;j<pump.data.length;j++) {
     if (j) {
-      ctx.lineTo(j*step, height - dashPump.data[j]*scaleDelta);
+      ctx.lineTo(j*step, height - pump.data[j]*scale);
       ctx.closePath();
       ctx.stroke();
     }
     ctx.beginPath();
-    ctx.moveTo(j*step, height - dashPump.data[j]*scaleDelta);
+    ctx.moveTo(j*step, height - pump.data[j]*scale);
   }
+}
 
-  // liveMachines
-  ctx.fillStyle = "rgba(128,32,32,0.5)";
-  ctx.font = "sans-serif bold";
-  ctx.fillText(pumpLiveMachines.data[120],width+10,height - pumpLiveMachines.data[120]*scaleLive+4);
+var lastColor = [255,65,65];
+var colorShift = [-10,10,0];
 
-  ctx.fillStyle = "rgba(255,64,64,0.5)";
-  ctx.beginPath();
-  ctx.moveTo(0, height);
-  ctx.lineTo(0, pumpLiveMachines.data[0]);
-  for (var i=0;i<pumpLiveMachines.data.length;i++) {
-    ctx.lineTo(i*step, height - pumpLiveMachines.data[i]*scaleLive);
-  }
-  ctx.lineTo((dashPump.data.length-1)*step, height);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = "rgba(128,32,32,0.5)";
-  ctx.lineWidth = 1.6;
-  for (var j=0;j<pumpLiveMachines.data.length;j++) {
-    if (j) {
-      ctx.lineTo(j*step, height - pumpLiveMachines.data[j]*scaleLive);
-      ctx.closePath();
-      ctx.stroke();
+function getColor() {
+  for (c=0;c<colorShift.length;c++) {
+    if (colorShift[c]==-10 && lastColor[c]<=65) {
+      var top = colorShift.shift();
+      colorShift.push(top);
+      break;
     }
-    ctx.beginPath();
-    ctx.moveTo(j*step, height - pumpLiveMachines.data[j]*scaleLive);
   }
+    
+  lastColor[0]+=colorShift[0];
+  lastColor[1]+=colorShift[1];
+  lastColor[2]+=colorShift[2];
 
+  var output = new Array();
+  output.push(lastColor[0]);
+  output.push(lastColor[1]);
+  output.push(lastColor[2]);
+  return output;
 }
 
 var Datapump = function() {
+  this.color = [0,0,0];
+  this.scale = 1;
   this.max = 1;
-  this.min = 0;
   this.data = [ 0 ];
   var index = 0;
+  this.nothingcount = 0;
+  this.nothing = function() {
+    this.nothingcount++;
+    this.data.shift();
+    this.data.push(0);
+  }
+  this.fill = function (length) {
+    while(this.data.length<length) {
+      this.data.push(0);
+    }
+  }
   this.push = function(data) {
+    this.nothingcount = 0;
     if (data>this.max) {
       this.max = data;
-    }
-    if (data<this.min) {
-      this.min = data;
     }
     this.data.push(data);
   }
@@ -108,56 +135,72 @@ var Datapump = function() {
       }
       this.max = newmax;
     }
-    if (this.min==shiftval) {
-
-    }
   }
-  this.single = function() {
-    index += 1;
-    if (index > this.data.length) {
-      index = 1;
-    }
-    return this.data[this.index-1];
-  };
-  this.many = function(length) {
-    var results = [];
-    for (var i=0;i<length;i++) {
-      results.push(this.single());
-    }
-    return results;
-  };
-};
+}
 
 var dashPump = new Datapump();
-for (var l=0;l<120;l++) {
-  dashPump.data.push(0);
-}
+dashPump.fill(steps);
+dashPump.color = getColor();
+dashPump.scale = 1.2;
 
 var pumpLiveMachines = new Datapump();
-for (var l=0;l<120;l++) {
-  pumpLiveMachines.data.push(0);
-}
+pumpLiveMachines.fill(steps);
+pumpLiveMachines.color = getColor();
+pumpLiveMachines.scale = 4;
 
 var socket = io.connect();
 
 socket.on('connect', function() {
   socket.emit('dashstart');
   var aCanvas = document.getElementById('a');
-  aCanvas.width = 600;
-  aCanvas.height = 200;
+  aCanvas.width = 1000;
+  aCanvas.height = 300;
 });
 
 socket.on('dash', dash);
 
+var machines = new Object();
+
 function dash(data) {
+  var b = '';
+  var updated = new Array();
+  var todelete = new Array();
+  for (mID in data.deltaMachines) {
+    if (machines[mID]) {
+      machines[mID].shift();
+      machines[mID].push(data.deltaMachines[mID]);
+    } else {
+      machines[mID] = new Datapump();
+      machines[mID].fill(steps);
+      machines[mID].color = getColor();
+      machines[mID].scale = 2;
+      $('#c').append("<li id=\""+mID+"\" style=\"color:rgb("+machines[mID].color+");\"><input type=\"checkbox\" id=\""+mID+"show\" /><label for=\""+mID+"show\">"+mID+"</label></li>");
+      $("#"+mID).hover( function() { $(this).addClass("hover"); newData = true; }, function() { $(this).removeClass("hover"); newData = true; });
+    }
+    updated.push(mID)
+  }
+  for (mID in machines) {
+    if (updated.indexOf(mID)==-1) {
+      machines[mID].nothing();
+    }
+    if (machines[mID].nothingcount>=steps) {
+      todelete.push(mID);
+    }
+  }
+  for (dID in todelete) {
+    var mID=todelete[dID]
+    delete machines[mID];
+    $("#"+mID).remove();
+  }
   dashPump.shift();
   dashPump.push(data.deltaLive);
   pumpLiveMachines.shift()
   pumpLiveMachines.push(data.liveMachines);
-  draw();
-//  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n');
+  newData = true;
+//  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n'+b);
 }
 
+var drawInterval = setInterval(draw, 15);
 
 $(document).ready(function() {
 
@@ -168,12 +211,19 @@ $(document).ready(function() {
     body,html{
       margin:0;
       padding:0;
+      font-family:sans-serif;
+    }
+    #a,#b{
+      float:left;
+    }
+    ul {
+      list-style-type:none;
     }
   </style>
   <title>Hyrule</title>
 </head>
 <body>
   <canvas id="a"></canvas>
-  <div id="b"></div>
+  <div id="b"><ul id="c"></ul></div>
 </body>
 </html>

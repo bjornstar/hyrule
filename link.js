@@ -76,7 +76,9 @@ function socketOnDisconnect() {
 
 function socketOnDashStart() {
   log('Client '+this.id+' requested dashstart.');
-  socketClients[this.id].prevLive = new Object();
+  socketClients[this.id].liveMachines = new Object();
+  socketClients[this.id].deltaMachines = new Object();
+  socketClients[this.id].liveMachines.length = 0;
   socketClients[this.id].frequency = defaultFrequency;
   socketClients[this.id].socketInterval = setInterval(dashPush, defaultFrequency, this);
 }
@@ -87,7 +89,6 @@ function dashPush(dSocket) {
   if (dashInProgress[dSocket.id]) {
     return;
   }
-
 
   var pStart = new Date();
   dashInProgress[dSocket.id] = pStart.getTime();
@@ -103,34 +104,41 @@ function dashPush(dSocket) {
   findObject['$or'].push({lastseen:{'$gt':thispointintime}});
 
   dbMachines.find(findObject,{timesseen:1, alive:1}).toArray( function(errFind, rMachines) {
-    if (!socketClients[dSocket.id]) { // Don't do anything if socket is already closed.
+    if (!dashCurrent) { // Don't do anything if socket is already closed.
       return;
     }
 
-    var liveMachines = 0;
     var liveTimesseen = 0;
-    var prevLiveTimesseen = 0;
-    var currentLive = new Object();
+    var prevTimesseen = 0;
 
     for (rMachine in rMachines) {
       var cMachine = rMachines[rMachine];
       if (cMachine.alive) {
-        liveMachines++;
-        if (dashCurrent.prevLive[cMachine._id]) {
-          prevLiveTimesseen += dashCurrent.prevLive[cMachine._id];
+        if (dashCurrent.liveMachines[cMachine._id]) {
+          prevTimesseen += dashCurrent.liveMachines[cMachine._id];
+        } else {
+          dashCurrent.liveMachines.length++;
         }
+        dashCurrent.deltaMachines[cMachine._id] = cMachine.timesseen-dashCurrent.liveMachines[cMachine._id];
+        dashCurrent.liveMachines[cMachine._id] = cMachine.timesseen;
         liveTimesseen += cMachine.timesseen;
-        currentLive[cMachine._id] = cMachine.timesseen;
+      } else {
+        if (dashCurrent.liveMachines[cMachine._id]) {
+          delete dashCurrent.liveMachines[cMachine._id];
+          delete dashCurrent.deltaMachines[cMachine._id];
+          dashCurrent.liveMachines.length--;
+        }
       }
     }
 
     var pMid = new Date();
     var output = new Object();
 
-    output.liveMachines = liveMachines;
-    output.dashElapsed = pMid.getTime()-socketClients[dSocket.id].prevPush;
-    if (prevLiveTimesseen) {
-      output.deltaLive = liveTimesseen - prevLiveTimesseen;
+    output.liveMachines = dashCurrent.liveMachines.length;
+    output.deltaMachines = dashCurrent.deltaMachines;
+    output.dashElapsed = pMid.getTime()-dashCurrent.prevPush;
+    if (prevTimesseen) {
+      output.deltaLive = liveTimesseen - prevTimesseen;
       output.updatesPerSecond = Math.floor(output.deltaLive * 1000 / output.dashElapsed);
       output.usecPerClient = Math.floor(1000000 / output.updatesPerSecond / output.liveMachines);
     } else {
@@ -143,9 +151,7 @@ function dashPush(dSocket) {
 
     dSocket.emit('dash', output);
 
-    socketClients[dSocket.id].prevPush = dashInProgress[dSocket.id];
-    socketClients[dSocket.id].prevLiveTimesseen = liveTimesseen;
-    socketClients[dSocket.id].prevLive = currentLive;
+    dashCurrent.prevPush = dashInProgress[dSocket.id];
 
     delete dashInProgress[dSocket.id];
   });
@@ -179,17 +185,8 @@ function socketOnRdmsrStart() {
 
 link.get('/machines', function(req, res){
   dbHyrule.collection('machines', function(errCollection, collectionMachine, callback) {
-    collectionMachine.find().sort({_id:-1}).toArray( function(errFind, results) {
+    collectionMachine.find().sort({_id:-1}).limit(50).toArray( function(errFind, results) {
       var output = '';
-      output += '<script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>\r\n';
-      output += '<script src="/socket.io/socket.io.js"></script>\r\n';
-      output += '<script type="text/javascript">\r\n';
-      output += 'var socket = io.connect();\r\n';
-      output += 'socket.on(\'connect\', function() { socket.emit(\'dashstart\') });\r\n';
-      output += 'socket.on(\'dash\', function (data) {\r\n';
-      output += '$(\'#banana\').html(\'<p>\'+JSON.stringify(data)+\'</p>\\r\\n\');\r\n';
-      output += '});\r\n';
-      output += '</script>\r\n';
       output += '<h1>Machines</h1>\r\n'; 
       output += '<div id="banana"> </div>\r\n';
       for (result in results) {
@@ -369,22 +366,22 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', functio
         jPoll.created = new Date();
         jPoll.tasks = new Array();
         jPoll.duration = 110000;
-                    fResult.jobs.push(jPoll);
-                    for(var n=1;n<=10;n++) {
+        fResult.jobs.push(jPoll);
+        for(var n=1;n<=10;n++) {
           var tPoll = new Object();
           tPoll._id = new ObjectID();
           tPoll.created = new Date();
           tPoll.duration = 2000;
-          tPoll.task = {execpass:'c:\\rdmsr.exe 1486 0'};
-                            fResult.jobs[fResult.jobs.length-1].tasks.push(tPoll);
-                    }
+          tPoll.task = {execpass:"c:\\pollmsr.exe 1486"};
+          fResult.jobs[fResult.jobs.length-1].tasks.push(tPoll);
+        }
         cMachines.save(fResult, {}, function(err,callback){ // this is dangerous, we could lose data.
-                            if(err && !err.ok) {
-                                    res.send('failed to create.\n');
-                            } else {
-                                    res.send(JSON.stringify(jPoll));
-                            }
-                    });
+          if(err && !err.ok) {
+            res.send('failed to create.\n');
+          } else {
+            res.send(JSON.stringify(jPoll));
+          }
+        });
       } else {
         res.send('failed to find machine.\n');
       }
@@ -457,9 +454,9 @@ link.get('/tasks', function(req, res){
 
 link.get('/jobs', function(req, res){
   dbHyrule.collection('jobs', function(errCollection, collectionJobs, callback) {
-    collectionJobs.find().sort({started:-1}).toArray( function(errFind, results) {
+    collectionJobs.find().sort({started:-1}).limit(50).toArray( function(errFind, results) {
       var output = '';
-      output += '<h1>Jobs</h1>\r\n';
+      output += '<h1>Last 50 Jobs</h1>\r\n';
       for (result in results) {
         var jResult = results[result];
         output += '<a href="/job/' + jResult._id + '">' + jResult._id + '</a>';

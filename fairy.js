@@ -123,12 +123,15 @@ function dothefairycheck() {
     spawnFairies();
   }
 
+  var liveFairies = 0;
   for (f in hyrule.fairies) {
-    if (hyrule.fairies[f].md5==hyrule.remoteMD5) {
-      return;
+    if (hyrule.fairies[f].md5==hyrule.validMD5 & liveFairies<parallelMoblins) {
+      liveFairies++;
+      continue;
     }
     try {
       hyrule.fairies[f].send({cmd:"die"});
+      liveFairies--;
     } catch (err) {
       log(err);
       process.exit();
@@ -316,7 +319,19 @@ function handleDownloadEnd(downloadedMoblin) {
  
   hyrule.moblin.md5 = crypto.createHash("md5").update(downloadedMoblin).digest("hex");
   hyrule.moblin.code = downloadedMoblin;
-  hyrule.moblin.script = vm.createScript(downloadedMoblin); 
+
+  try {
+    hyrule.moblin.script = vm.createScript(downloadedMoblin);
+    hyrule.validMD5 = hyrule.moblin.md5;
+  } catch (err) {
+    log("Bad moblin.");
+  }
+  
+  if (hyrule.validMD5 != hyrule.moblin.md5) {
+    hyrule.moblin.code = "";
+    hyrule.moblin.md5 = "";
+    return;
+  }
 
   clearInterval(hyrule.fairy.versionCheckInterval);
   delete hyrule.fairy.versionCheckInterval;
