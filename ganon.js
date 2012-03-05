@@ -40,7 +40,7 @@ function ganonTime() {
       failMachine(fMachines, now);
     }
     var end = new Date();
-    log("job  timeout: "+(end.getTime()-now.getTime()));
+    //log("job  timeout: "+(end.getTime()-now.getTime()));
   });
 }
 
@@ -89,12 +89,12 @@ function failMachine(machines, when) {
           continue;
         }
 
-        log("Task:    " + fTask._id + " " + fTask.timeout);
+        log("Task:    " + fTask._id + " " + fTask.timeout + " " + when + " " + new Date().toISOString());
 
         var tLog = fTask;
         tLog.machine = fMachine._id;
         tLog.job = fJob._id;
-        tLog.failed = when;
+        tLog.timouted = when;
 
         cTasks.insert(tLog);
 
@@ -125,7 +125,7 @@ function failMachine(machines, when) {
       if (fJob.tasks.length==0 || fJob.timeout < when) {
         var jLog = fJob;
         jLog.machine = fMachine._id;
-        jLog.failed = when;
+        jLog.timeouted = when;
         delete jLog.tasks;
 
         cJobs.insert(jLog);
@@ -170,7 +170,7 @@ function idleTimeout() {
 
   cMachines.update(findObject, setObject, {safe:true, multi:true, upsert:false}, function () {
     var end = new Date();
-    log("idle timeout: "+(end.getTime()-now.getTime()));
+    //log("idle timeout: "+(end.getTime()-now.getTime()));
   });
 }
 

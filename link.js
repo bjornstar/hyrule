@@ -187,7 +187,7 @@ link.get('/machines', function(req, res){
   dbHyrule.collection('machines', function(errCollection, collectionMachine, callback) {
     collectionMachine.find().sort({_id:-1}).limit(50).toArray( function(errFind, results) {
       var output = '';
-      output += '<h1>Machines</h1>\r\n'; 
+      output += '<h1>Top 50 Machines</h1>\r\n'; 
       output += '<div id="banana"> </div>\r\n';
       for (result in results) {
         var mResult = results[result];
@@ -445,7 +445,13 @@ link.get('/tasks', function(req, res){
       for (result in results) {
         var tResult = results[result];
         output += '<a href="/task/' + tResult._id + '">' + tResult._id + '</a>';
-        output += ' ' + tResult.machine + ' ' + tResult.started + ' ' + JSON.stringify(tResult.task) + ' ' + (tResult.completed - tResult.started) + '<br />\r\n';
+        output += ' ' + tResult.machine + ' ' + tResult.started + ' ' + JSON.stringify(tResult.task) + ' ' + (tResult.completed - tResult.started);
+        if (tResult.local) {
+          output += " " + (tResult.local.completed - tResult.local.started);
+          output += " " + (tResult.started - tResult.local.started);
+          output += " " + (tResult.completed - tResult.local.completed);
+        }
+        output += '<br />\r\n';
       }
       res.send(output);
     });

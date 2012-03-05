@@ -237,6 +237,9 @@ function spawnWorker() {
   worker.machines = new Object();
 
   worker.on('message', handleMessageFromWorker);
+  worker.on('error', function(err) {
+    console.log(err);
+  });
 }
 
 function handleWorkerDeath(worker) {
@@ -276,9 +279,13 @@ if (cluster.isMaster) { // The master keeps track of the files and the workers.
 // Everything below here is for the workers.
 
 process.on("message", handleMessageFromMaster);
+process.on("exit", handleWorkerExit);
+
+function handleWorkerExit(data) {
+  log(data);
+}
 
 log("I am a worker!");
-
 
 var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
 var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
@@ -348,14 +355,14 @@ function Client(mac) {
         if (famErr && !famErr.ok) {
           log('Error in findAndModify');
           self.res.json(self.taskOut);
-          delete inProgress[self.req.params.mac];
+          delete inProgress[self.req.mac];
           return;
         }
 
         if (famMachine==null) {
           log('Could not find the machine.');
           self.res.json(self.taskOut);
-          delete inProgress[self.req.params.mac];
+          delete inProgress[self.req.mac];
           return;
         }
 
@@ -463,93 +470,95 @@ function Client(mac) {
       log(err);
       process.exit();
     }
-    tStart.ts = self.req.params.ts;
+    tStart.ts = self.req.ts;
     self.res.json(tStart); // We're not waiting for the save event to finish.
-    delete inProgress[self.req.params.mac];
+    delete inProgress[self.req.mac];
 
     self.end = new Date();
     // log(self.end - self.start);
   }
 
-	function passThang() {
-		var jPass;
-		var tRemove = -1;
+  function passThang() {
+    var jPass;
+    var tRemove = -1;
 
-		var updateObject = new Object();
-		updateObject['$pull'] = new Object();
+    var updateObject = new Object();
+    updateObject['$pull'] = new Object();
 
-		var uO = updateObject['$pull'];
+    var uO = updateObject['$pull'];
 
-		for (job in self.machine.jobs) {
-			if (!self.machine.jobs[job].started) { // Dont' bother looking if it hasn't started.
-				break;
-			}
+    for (job in self.machine.jobs) {
+      if (!self.machine.jobs[job].started) { // Dont' bother looking if it hasn't started.
+        break;
+      }
 
-			if (self.machine.jobs[job].locked) { // Don't bother looking if it's locked.
-				break;
-			}
+      if (self.machine.jobs[job].locked) { // Don't bother looking if it's locked.
+        break;
+      }
 
-			jPass = self.machine.jobs[job];
-			jRemove = job;
+      jPass = self.machine.jobs[job];
+      jRemove = job;
 
-			for (task in jPass.tasks) {
-				if (self.taskID != jPass.tasks[task]._id) {
-					continue;
-				}
+      for (task in jPass.tasks) {
+        if (self.taskID != jPass.tasks[task]._id) {
+          continue;
+        }
 
-				if (!jPass.tasks[task].started) {
-var now = new Date();
-log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.getTime() + ' ' + now.getTime());
-					break;
-				}
+        if (!jPass.tasks[task].started) {
+          var now = new Date();
+          log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.getTime() + ' ' + now.getTime());
+          break;
+        }
 
-				var tLog = jPass.tasks[task];
-				tLog.machine = self.machine._id;
-				tLog.job = jPass._id;
-				tLog.completed = new Date();
+        var tLog = jPass.tasks[task];
+        tLog.machine = self.machine._id;
+        tLog.job = jPass._id;
+        tLog.completed = new Date();
+        delete tLog.timeout;
+        delete tLog.duration;
+        tLog.local = new Object();
+        tLog.local.started = self.req.start;
+        tLog.local.completed = self.req.end;
 
-				dbHyrule.collection('tasks', function(err, collectionTask) {
-					collectionTask.insert(tLog);
-				});
+        dbHyrule.collection('tasks', function(err, collectionTask) {
+          collectionTask.insert(tLog);
+        });
 
-				uO['jobs.'+job+'.tasks'] = new Object();
-				uO['jobs.'+job+'.tasks']._id = new ObjectID(tLog._id);
+        uO['jobs.'+job+'.tasks'] = new Object();
+        uO['jobs.'+job+'.tasks']._id = tLog._id;
 
-				tRemove = task;
-			}
-		}
+        tRemove = task;
+      }
+    }
 
-		if (tRemove == -1) {
-			return;
-		}
+    if (tRemove == -1) {
+      return;
+    }
 
-		jPass.tasks.splice(tRemove,1);
+    jPass.tasks.splice(tRemove,1);
 
-		if (jPass.tasks.length==0) {
-			var jLog = self.machine.jobs.splice(jRemove,1);
-			jLog.machine = self.machine._id;
-			jLog.completed = new Date();
-			delete jLog.tasks;
-			dbHyrule.collection('jobs', function(err, collectionJob) {
-				collectionJob.insert(jLog);
-			});
+    if (jPass.tasks.length==0) {
+      var jLog = self.machine.jobs.splice(jRemove,1);
+      jLog.machine = self.machine._id;
+      jLog.completed = new Date();
+      delete jLog.tasks;
+      dbHyrule.collection('jobs', function(err, collectionJob) {
+        collectionJob.insert(jLog);
+      });
 
-			uO['jobs'] = new Object();
-			uO['jobs']._id = new ObjectID(jLog._id);
-		}
+      uO['jobs'] = new Object();
+      uO['jobs']._id = jLog._id;
+    }
 
-		cMachines.update(self.findObject, updateObject, function(err,callback){ // it's atomic!
-			if (err && !err.ok) {
-				appendError({'errorData':err,'errorin':'updating machine on pass.'});
-				self.res.send('not ok.');
-			} else {
-				self.res.send('ok'); // Here we wait until save completes before responding.
-				delete inProgress[self.req.params.mac];
-			}
-		});
-	}
+    cMachines.update(self.findObject, updateObject, function(err,callback){ // it's atomic!
+      self.res.json({ok:self.req.pass}); // Here we wait until save completes before responding.
+      delete inProgress[self.req.mac];
+    });
+  }
 
-	function failThang() {
+  function failThang() {
+    log("Task failed. "+self.req.fail);
+/*
 		dbHyrule.collection('tasks', function(err, collectionTask) {
 			if (self.machine.jobs.length && self.machine.jobs[0].started && !self.machine.jobs[0].locked) { // don't pass if locked.
 				if (self.machine.jobs[0].tasks.length && self.machine.jobs[0].tasks[0].started) {
@@ -589,8 +598,10 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
 				log('no jobs to pass.');
 				self.res.send('no jobs to pass.');
 			}
-		});
-	}
+		}); */
+
+  }
+
   function deadThang() {
     var updateObject = new Object();
     updateObject['$set'] = new Object();
@@ -610,7 +621,7 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
     self.req = req;
     self.res = res;
     self.start = new Date();
-    self.taskID = req.params.taskid;
+    self.taskID = req.pass;
     self.doyourthang = passThang;
 
     getMachines();
@@ -620,7 +631,7 @@ log('NOT STARTED!!!! ' + JSON.stringify(jPass.tasks[task]) + ' ' + self.start.ge
     self.req = req;
     self.res = res;
     self.start = new Date();
-    self.taskID = req.params.taskid;
+    self.taskID = req.fail;
     self.doyourthang = failThang;
 
     getMachines();
@@ -646,17 +657,19 @@ var inProgress = new Object();
 var lastOverRun = new Date();
 
 zeldaExpress.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/task', function(req, res){
+  req.mac = req.params.mac;
+
   var reqTime = new Date();
-  if (inProgress[req.params.mac]) {
-    inProgress[req.params.mac]++;
-    if (inProgress[req.params.mac] >= 3) {
+  if (inProgress[req.mac]) {
+    inProgress[req.mac]++;
+    if (inProgress[req.mac] >= 3) {
       lastOverRun = new Date();
     }
-    if (inProgress[req.params.mac] >= 10) {
+    if (inProgress[req.mac] >= 10) {
       log('THE BRAKES!');
       log(inProgress);
       defaultPause +=5;
-      inProgress[req.params.mac] = 1;
+      inProgress[req.mac] = 1;
     }
     res.json({task:{pause:defaultPause}});
     return;
@@ -666,31 +679,37 @@ zeldaExpress.get('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/
     lastOverRun = new Date();
     defaultPause-=5;
   }
-  inProgress[req.params.mac] = new Object();
-  inProgress[req.params.mac] = 1;
-  var zCurrent = new Client(req.params.mac);
+  inProgress[req.mac] = new Object();
+  inProgress[req.mac] = 1;
+  var zCurrent = new Client(req.mac);
   zCurrent.task(req, res);
 });
 
 zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/pass/:taskid([0-9a-fA-F]{24})?', function(req, res){
-  if (inProgress[req.params.mac]) {
+  req.mac = req.params.mac;
+  req.pass = req.params.taskid;
+
+  if (inProgress[req.mac]) {
     res.json({task:{pause:defaultPause}});
     overRun++;
     return;
   }
-  var zCurrent = new Client(req.params.mac);
+  var zCurrent = new Client(req.mac);
   zCurrent.pass(req, res);
 });
 
 zeldaExpress.post('/:client(client|moblin)/:mac([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/fail/:taskid([0-9a-fA-F]{24})?', function(req, res){
-  if (inProgress[req.params.mac]) {
+  req.mac = req.params.mac;
+  req.fail = req.params.taskid;
+
+  if (inProgress[req.mac]) {
     res.json({task:{pause:defaultPause}});
     overRun++;
     return;
   }
   log('got a fail');
-  log(req.params.taskid);
-  var zCurrent = new Client(req.params.mac);
+  log(req.fail);
+  var zCurrent = new Client(req.mac);
   zCurrent.fail(req, res);
 });
 
@@ -811,25 +830,25 @@ function zelSockOnData(incomingdata) {
     this.json = responseObjectJSON;
     if (this.mac == undefined) {
       try {
-        process.send({cmd:"machineid",machineid:moblinData.params.mac,socketid:this.socketid});
+        process.send({cmd:"machineid",machineid:moblinData.mac,socketid:this.socketid});
       } catch (err) {
         log('error sending machineid to master.');
         log(err);
         process.exit();
       }
     }
-    this.mac  = moblinData.params.mac;
+    this.mac  = moblinData.mac;
     
     var reqTime = new Date();
     var reqTS = reqTime.getTime();
 
-    if (inProgress[moblinData.params.mac]) {
-      var pO = inProgress[moblinData.params.mac];
-      inProgress[moblinData.params.mac].push(moblinData.params.ts);
-      if (inProgress[moblinData.params.mac].length >= 5) {
+    if (inProgress[moblinData.mac] && !moblinData.pass && !moblinData.fail) {
+      var pO = inProgress[moblinData.mac];
+      inProgress[moblinData.mac].push(moblinData.ts);
+      if (inProgress[moblinData.mac].length >= 5) {
         lastOverRun = new Date();
       }
-      if (inProgress[moblinData.params.mac].length >= 10 && !braked) {
+      if (inProgress[moblinData.mac].length >= 10 && !braked) {
         log('THE BRAKES!');
         //log(inProgress);
         defaultPause +=5;
@@ -842,22 +861,28 @@ function zelSockOnData(incomingdata) {
         log(err);
         process.exit();
       }
-      this.json({task:{pause:defaultPause},ts:moblinData.params.ts,early:true});
+      this.json({task:{pause:defaultPause},ts:moblinData.ts,early:true});
       continue;
     }
 
-    prevMob = moblinData.params.mac;
+    prevMob = moblinData.mac;
 
     if (reqTime.getTime() - lastOverRun.getTime()>1000 && defaultPause > 15) {
       lastOverRun = new Date();
       defaultPause-=5;
     }
 
-    inProgress[moblinData.params.mac] = new Array();
-    inProgress[moblinData.params.mac].push(moblinData.params.ts);
+    inProgress[moblinData.mac] = new Array();
+    inProgress[moblinData.mac].push(moblinData.ts);
 
-    var zCurrent = new Client(moblinData.params.mac);
-    zCurrent.task(moblinData,this);
+    var zCurrent = new Client(moblinData.mac);
+    if (moblinData.pass) {
+      zCurrent.pass(moblinData, this);
+    } else if (moblinData.fail) {
+      zCurrent.fail(moblinData, this);
+    } else {
+      zCurrent.task(moblinData,this);
+    }
   }
   this.data = '';
 }

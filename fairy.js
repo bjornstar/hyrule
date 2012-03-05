@@ -442,8 +442,8 @@ function fairyStats() {
     mC.earlyCount=0;
     mC.lateCount=1;
   }
-  log(output1);
-  log(output2);
+//  log(output1);
+//  log(output2);
 }
 
 function pad(str,howmany) {

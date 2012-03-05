@@ -214,6 +214,11 @@ function digestTask(chunk, taskStart) {
     return;
   }
 
+  if (tastyBits.ok) {
+    log(tastyBits.ok + ' passed ok.');
+    return;
+  }
+
   var task = tastyBits.task;
 
   if (!moblin.umbilicalCord) {
@@ -243,38 +248,33 @@ function digestTask(chunk, taskStart) {
     return;
   }
   
-  if(task.execpass!=null) {
+  if(task.execpass) {
     log(tastyBits); // Ready to spawn tasks?
     var commandLine = task.execpass.split(' ');
-    log(commandLine);
-    var moblinTask = spawn(commandLine.shift() + commandLine);
+    var moblinTask = spawn(commandLine.shift(), commandLine);
+    moblinTask.task = tastyBits;
     moblinTask.stdout.on("data", function (data) {
       log("task: "+data);
     });
     moblinTask.stderr.on("data", function (data) {
       log("task: "+data);
     });
-    moblinTask.on("exit", function (code) {
-      log("task exited with code " + code);
-    });
+    moblinTask.on("exit", moblinTaskExit);
   }
 }
 
-//
-
-/*var pingy = spawn('ping', ['-n','5','10.30.0.73']);
-
-pingy.stdout.on('data', function (data) {
-  console.log('pingy: ' + data);
-});
-
-pingy.stderr.on('data', function (data) {
-  console.log('pingyerr: ' + data);
-});
-  
-pingy.on('exit', function (code) {
-  console.log('pingy exited with code ' + code);
-});*/
+function moblinTaskExit(code) {
+  log("task."+this.task._id+": exited with code "+code);
+  var endTime = new Date();
+  if (code==0) {
+    log("PASSING THIS TASK YAY!");
+    log("It took " + (endTime.getTime() - this.task.ts) + "ms to complete.");
+    mobSockWrite({mac:moblin.name,pass:this.task._id,start:this.task.ts,end:endTime.getTime()});
+  } else {
+    log("FAILING THIS TASK BOO!");
+    mobSockWrite({mac:moblin.name,fail:this.task._id,start:this.task.ts,end:endTime.getTime()});
+  }
+}
 
 var mobSock;
 var mobSockWriteInterval;
@@ -370,11 +370,11 @@ setInterval(function() {
 }, 500);
 
 
-function mobSockWrite(source) {
+function mobSockWrite(data) {
   var td = new Date();
   var ts = td.getTime();
 
-  if (ts-ls<moblin.heartRate*0.8) {
+  if (ts-ls<moblin.heartRate*0.8 && !data) {
     // Sometimes node timers fire early. We let them fire 20% early, otherwise it's a bit much. They can try again.
     earlyCount++;
     return;
@@ -389,8 +389,11 @@ function mobSockWrite(source) {
     return;
   }
 
+  if (!data) {
+    data = {mac:moblin.name,ts:ts};
+  }
 
-  var output = JSON.stringify({params:{mac:moblin.name,ts:ts}})+String.fromCharCode(3);
+  var output = JSON.stringify(data)+String.fromCharCode(3);
 
   try {
     mobSock.write(output);
