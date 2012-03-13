@@ -1,17 +1,18 @@
 {
   "name": "hyrule",
   "description": "A magical wonderland where hardware gets tested.",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "dependencies": {
-    "mongodb": ">=0.9.7",
-    "express": ">=2.5.5",
-    "socket.io": ">=0.8.7"
+    "redis": ">=0.7.1",
+    "mongodb": ">=0.9.9",
+    "express": ">=2.5.8",
+    "socket.io": ">=0.9.1"
   },
   "engines": {
-    "node": ">=0.6.7"
+    "node": ">=0.6.12"
   },
   "scripts": {
-    "start": "zelda.js"
+    "start": ["zelda.js", "link.js", "ganon.js"]
   },
   "maintainers": [ {
       "name": "Bjorn Stromberg",

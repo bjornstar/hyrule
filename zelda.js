@@ -5,7 +5,6 @@ var crypto  = require('crypto');  //    Native node package. We use it for md5
 var fs      = require('fs');      //    Native node package. We use it to read/write files
 var net     = require('net');     //    Native node package. We use it for socket interface
 var os      = require('os');      //    Native node package. We use it to determine # of CPUs
-var util    = require('util');    //    Native node package. We use it for logging
 
 var hyrule = new Object(); 
 hyrule.appName = 'Zelda';
@@ -15,7 +14,7 @@ hyrule.fairy = new Object();
 hyrule.config = new Object();
 
 function log(data) {
-  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
+  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+JSON.stringify(data));
 }
 
 var configFileDefault = ('./config/default.json');
@@ -238,7 +237,7 @@ function spawnWorker() {
 
   worker.on('message', handleMessageFromWorker);
   worker.on('error', function(err) {
-    console.log(err);
+    log(err);
   });
 }
 
@@ -287,10 +286,12 @@ function handleWorkerExit(data) {
 
 log("I am a worker!");
 
-var ObjectID = mongodb.ObjectID;  // This is a Mongo BSON datatype.
+var ObjectID = mongodb.ObjectID;  // This is a native mongodb datatype.
+var Timestamp = mongodb.Timestamp; // This is a native mongodb datatype.
 var serverHyrule = new mongodb.Server(config.hyrule.host, config.hyrule.port); // This is our database server
 var dbHyrule = new mongodb.Db(config.hyrule.database, serverHyrule, {}); // This is our database
 var cMachines = new mongodb.Collection(dbHyrule, 'machines');
+var cLogs = new mongodb.Collection(dbHyrule, 'logs');
 
 dbHyrule.open(function() {
   var timeDBOpen = new Date();
@@ -550,14 +551,33 @@ function Client(mac) {
       uO['jobs']._id = jLog._id;
     }
 
-    cMachines.update(self.findObject, updateObject, function(err,callback){ // it's atomic!
-      self.res.json({ok:self.req.pass}); // Here we wait until save completes before responding.
-      delete inProgress[self.req.mac];
-    });
+    cMachines.update(self.findObject, updateObject);
+
+    var findLog = new Object();
+    findLog._id = new ObjectID(self.taskID);
+
+    var updateLog = new Object();
+    updateLog['$set'] = new Object();
+    updateLog['$set'].live = false;
+
+    cLogs.update(findLog, updateLog);
+
+    self.res.json({ok:self.req.pass}); // Here we wait until save completes before responding.
+    delete inProgress[self.req.mac];
   }
 
   function failThang() {
-    log("Task failed. "+self.req.fail);
+    var findLog = new Object();
+    findLog._id = new ObjectID(self.taskID);
+
+    var updateLog = new Object();
+    updateLog['$set'] = new Object();
+    updateLog['$set'].live = false;
+
+    cLogs.update(findLog, updateLog);
+
+    delete inProgress[self.req.mac];
+
 /*
 		dbHyrule.collection('tasks', function(err, collectionTask) {
 			if (self.machine.jobs.length && self.machine.jobs[0].started && !self.machine.jobs[0].locked) { // don't pass if locked.
@@ -603,10 +623,48 @@ function Client(mac) {
   }
 
   function deadThang() {
-    var updateObject = new Object();
-    updateObject['$set'] = new Object();
-    updateObject['$set'].alive = false;
-    cMachines.update(self.findObject,updateObject);
+    var updateMachine = new Object();
+    updateMachine['$set'] = new Object();
+    updateMachine['$set'].alive = false;
+    cMachines.update(self.findObject,updateMachine);
+
+    delete inProgress[self.req.mac];
+  }
+
+  function logThang() {
+    var findLog = new Object();
+    findLog._id = new ObjectID(self.req.tlog);
+    findLog.machine = new ObjectID(self.req.mac);
+
+    var updateLog = new Object();
+    updateLog['$set'] = new Object();
+    updateLog['$pushAll'] = new Object();
+
+    var usetLog = updateLog['$set'];
+    usetLog.live = true;
+
+    var upushLog = updateLog['$pushAll'];
+    upushLog['entries'] = new Array();
+
+    var curTs = self.req.ts;
+
+    while (self.req.data.length>0) {
+      var rD = self.req.data.pop();
+      var pD;
+      try {
+        pD = JSON.parse(rD);
+      } catch (err) {
+        log("error parsing tlog");
+      }
+      pD.ts = curTs-pD.ts;
+      curTs = pD.ts;
+
+      upushLog['entries'].unshift(pD);
+    }
+
+    cLogs.update(findLog, updateLog, {upsert: true});
+    
+    delete inProgress[self.req.mac];
   }
 
   function task(req, res) {
@@ -645,10 +703,21 @@ function Client(mac) {
     deadThang();
   }
 
+  function tlog(req, res) {
+    self.req = req;
+    self.res = res;
+    self.start = new Date();
+    self.taskID = req.log;
+    self.doyourthang = logThang;
+
+    getMachines();
+  }
+
   this.task = task;
   this.pass = pass;
   this.fail = fail;
   this.dead = dead;
+  this.tlog = tlog;
 
   return this;
 }
@@ -842,7 +911,7 @@ function zelSockOnData(incomingdata) {
     var reqTime = new Date();
     var reqTS = reqTime.getTime();
 
-    if (inProgress[moblinData.mac] && !moblinData.pass && !moblinData.fail) {
+    if (inProgress[moblinData.mac] && !moblinData.pass && !moblinData.fail && !moblinData.log) {
       var pO = inProgress[moblinData.mac];
       inProgress[moblinData.mac].push(moblinData.ts);
       if (inProgress[moblinData.mac].length >= 5) {
@@ -850,7 +919,7 @@ function zelSockOnData(incomingdata) {
       }
       if (inProgress[moblinData.mac].length >= 10 && !braked) {
         log('THE BRAKES!');
-        //log(inProgress);
+        log(inProgress);
         defaultPause +=5;
         braked=true;
       }
@@ -872,6 +941,10 @@ function zelSockOnData(incomingdata) {
       defaultPause-=5;
     }
 
+    if (moblinData.mac==undefined) {
+      log(moblinData);
+    }
+
     inProgress[moblinData.mac] = new Array();
     inProgress[moblinData.mac].push(moblinData.ts);
 
@@ -880,6 +953,8 @@ function zelSockOnData(incomingdata) {
       zCurrent.pass(moblinData, this);
     } else if (moblinData.fail) {
       zCurrent.fail(moblinData, this);
+    } else if (moblinData.tlog) {
+      zCurrent.tlog(moblinData, this);
     } else {
       zCurrent.task(moblinData,this);
     }

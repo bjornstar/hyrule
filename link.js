@@ -1,7 +1,6 @@
 var mongodb = require('mongodb');
 var express = require('express');
 var io      = require('socket.io');
-var util    = require('util');
 
 var hyrule = new Object();
 hyrule.appName = 'Link';
@@ -30,9 +29,13 @@ var ObjectID = mongodb.ObjectID;
 
 var serverHorcrux = new mongodb.Server(config.hyrule.host, config.hyrule.port);
 var dbHyrule = new mongodb.Db(config.hyrule.database, serverHorcrux, {});
+var dbMachines = dbHyrule.collection("machines");
+var dbTasks = dbHyrule.collection("tasks");
+var dbJobs = dbHyrule.collection("jobs");
+var dbLogs = dbHyrule.collection("logs");
 
 function log(data) {
-  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+util.inspect(data));
+  console.log('['+new Date().toISOString()+'] '+hyrule.appName+'.'+process.pid+': '+JSON.stringify(data));
 }
 
 dbHyrule.open(function() {
@@ -40,8 +43,6 @@ dbHyrule.open(function() {
   var timeDBOpen = new Date();
   log('It took ' + (timeDBOpen.getTime() - hyrule.appStart.getTime()) + 'ms for ' + hyrule.appName + ' to connect to the database.');
 });
-
-var dbMachines = dbHyrule.collection('machines');
 
 log('Hello, my name is ' + hyrule.appName + '!');
 
@@ -63,6 +64,7 @@ function socketsOnConnection(socket) {
   socket.on('disconnect', socketOnDisconnect);
   socket.on('dashstart', socketOnDashStart);
   socket.on('rdmsrstart', socketOnRdmsrStart);
+  socket.on('rdmsr', socketOnRdmsr);
 }
 
 function socketOnDisconnect() {
@@ -71,18 +73,89 @@ function socketOnDisconnect() {
     return;
   }
   clearInterval(socketClients[this.id].socketInterval);
+  clearInterval(socketClients[this.id].logsInterval);
   delete socketClients[this.id];
+}
+
+function socketOnRdmsr(data) {
+  var mObjectID = new ObjectID(data);
+  var findObject = {_id:mObjectID};
+
+  createRdmsrJobs(findObject);
+
+  log('Client '+this.id+' requested rdmsr.');
+  socketClients[this.id].logsInterval = setInterval(logsPush, defaultFrequency, this);
+  socketClients[this.id].logsEmptyStart = -1;
+}
+
+function logsPush(dSocket) {
+  if (logsInProgress[dSocket.id]) { // it's working... give it some time.
+    return;
+  }
+
+  var pStart = new Date();
+  logsInProgress[dSocket.id] = pStart.getTime(); // We're working on it.
+
+  var secondsago = 10;
+  var thispointintime = pStart.getTime()-secondsago*1000;
+
+  var logsSocket = socketClients[dSocket.id];
+
+  var findLogs = new Object();
+  findLogs["$or"] = new Array();
+  findLogs["$or"].push({"live":true});
+  findLogs["$or"].push({"entries.ts":{"$gt":thispointintime}});
+
+  var fieldsLogs = new Object();
+  fieldsLogs["entries.cpu.0.1486"]=1;
+  fieldsLogs["entries.ts"]=1;
+  fieldsLogs["entries"]={"$slice":-10000};
+
+  dbLogs.find(findLogs, fieldsLogs).toArray( function(errFind, rLogs) {
+    if (!logsSocket) {
+      return;
+    }
+
+    if (socketClients[dSocket.id].logsEmptyStart<thispointintime && socketClients[dSocket.id].logsEmptyStart>-1) {
+      clearInterval(socketClients[dSocket.id].logsInterval);
+    }
+
+    delete logsInProgress[dSocket.id];
+
+    if (!rLogs.length) {
+      if (socketClients[dSocket.id].logsEmptyStart==-1) {
+        socketClients[dSocket.id].logsEmptyStart = pStart.getTime();
+      }
+      return;
+    } else {
+      socketClients[dSocket.id].logsEmptyStart = -1;
+    }
+
+    var output = new Object();
+
+    for (rM in rLogs) {
+      rID = rLogs[rM]._id;
+      output[rID] = new Array();
+      for (rE in rLogs[rM].entries) {
+        output[rID].push(rLogs[rM].entries[rE]);
+      }
+    }
+
+    dSocket.emit('tlog',output);
+  });
 }
 
 function socketOnDashStart() {
   log('Client '+this.id+' requested dashstart.');
   socketClients[this.id].liveMachines = new Object();
   socketClients[this.id].deltaMachines = new Object();
+  socketClients[this.id].zeroMachines = new Object();
   socketClients[this.id].liveMachines.length = 0;
   socketClients[this.id].frequency = defaultFrequency;
   socketClients[this.id].socketInterval = setInterval(dashPush, defaultFrequency, this);
 }
 
+var logsInProgress = new Object();
 var dashInProgress = new Object();
 
 function dashPush(dSocket) {
@@ -113,20 +186,35 @@ function dashPush(dSocket) {
 
     for (rMachine in rMachines) {
       var cMachine = rMachines[rMachine];
+
       if (cMachine.alive) {
         if (dashCurrent.liveMachines[cMachine._id]) {
           prevTimesseen += dashCurrent.liveMachines[cMachine._id];
+        } else if (dashCurrent.zeroMachines[cMachine._id] && cMachine.timesseen==dashCurrent.zeroMachines[cMachine._id]) {
+          continue;
         } else {
+          dashCurrent.liveMachines[cMachine._id] = 0;
           dashCurrent.liveMachines.length++;
         }
-        dashCurrent.deltaMachines[cMachine._id] = cMachine.timesseen-dashCurrent.liveMachines[cMachine._id];
-        dashCurrent.liveMachines[cMachine._id] = cMachine.timesseen;
-        liveTimesseen += cMachine.timesseen;
+
+        var delta = cMachine.timesseen-dashCurrent.liveMachines[cMachine._id];
+
+        if (delta || !dashCurrent.liveMachines[cMachine._id]) {
+          dashCurrent.deltaMachines[cMachine._id] = cMachine.timesseen-dashCurrent.liveMachines[cMachine._id];
+          dashCurrent.liveMachines[cMachine._id] = cMachine.timesseen;
+          liveTimesseen += cMachine.timesseen;
+        } else {
+          dashCurrent.zeroMachines[cMachine._id] = cMachine.timesseen;
+          delete dashCurrent.liveMachines[cMachine._id];
+          delete dashCurrent.deltaMachines[cMachine._id];
+          dashCurrent.liveMachines.length--;
+        }
       } else {
         if (dashCurrent.liveMachines[cMachine._id]) {
           delete dashCurrent.liveMachines[cMachine._id];
           delete dashCurrent.deltaMachines[cMachine._id];
           dashCurrent.liveMachines.length--;
+          log("destroyed "+cMachine._id);
         }
       }
     }
@@ -147,7 +235,7 @@ function dashPush(dSocket) {
       output.msPerClient = 0;
     }
     var pEnd = new Date();
-    log((pEnd.getTime()-pStart.getTime())+' '+(pMid.getTime()-pStart.getTime()));
+    //log((pEnd.getTime()-pStart.getTime())+' '+(pMid.getTime()-pStart.getTime()));
 
     dSocket.emit('dash', output);
 
@@ -164,19 +252,17 @@ function socketOnRdmsrStart() {
   socketClients[this.id] = {'prevData':0};
   socketClients[this.id].socketInterval = setInterval( function() {
     if (socketClients[this.id]) {
-      dbHyrule.collection('tasks', function(errCollection, collectionTasks) {
-        collectionTasks.find({'task.rdmsr':{'$ne':null}}).sort({completed:-1}).limit(3).toArray( function(errFind, rTasks) { // index on completed.
-          if (socketClients[this.id]) {
-            var output = '';
-            for (task in rTasks) {
-              output += JSON.stringify(rTasks[task]) + ' ';
-            }
-            if (socketClients[this.id].prevData!=output) {
-              socket.emit('rdmsr', output);
-            }
-            link.socketClients[this.id].prevData = output;
+      dbTasks.find({'task.rdmsr':{'$ne':null}}).sort({completed:-1}).limit(3).toArray( function(errFind, rTasks) { // index on completed.
+        if (socketClients[this.id]) {
+          var output = '';
+          for (task in rTasks) {
+            output += JSON.stringify(rTasks[task]) + ' ';
           }
-        });
+          if (socketClients[this.id].prevData!=output) {
+            socket.emit('rdmsr', output);
+          }
+          link.socketClients[this.id].prevData = output;
+        }
       });
     }
   }, link.defaultFrequency);
@@ -184,50 +270,47 @@ function socketOnRdmsrStart() {
 }
 
 link.get('/machines', function(req, res){
-  dbHyrule.collection('machines', function(errCollection, collectionMachine, callback) {
-    collectionMachine.find().sort({_id:-1}).limit(50).toArray( function(errFind, results) {
-      var output = '';
-      output += '<h1>Top 50 Machines</h1>\r\n'; 
-      output += '<div id="banana"> </div>\r\n';
-      for (result in results) {
-        var mResult = results[result];
-        output += '<a href="/machine/' + mResult._id + '">' + mResult._id + '</a>';
-        if (mResult.mac) {
-          output += ' ' + mResult.mac;
-        }
-        output += ' ' + mResult.timesseen;
-        output += ' ' + mResult.lastseen;
-        output += ' <a href="/machine/' +mResult._id + '/createjob">add a job</a>';
-        output += '<br />\r\n';
+  dbMachines.find().sort({_id:-1}).limit(50).toArray( function(errFind, results) {
+    var output = '';
+    output += '<h1>Top 50 Machines</h1>\r\n'; 
+    output += '<div id="banana"> </div>\r\n';
+    for (result in results) {
+      var mResult = results[result];
+      output += '<a href="/machine/' + mResult._id + '">' + mResult._id + '</a>';
+      if (mResult.mac) {
+        output += ' ' + mResult.mac;
       }
-      res.send(output);
-    });
+      output += ' ' + mResult.timesseen;
+      output += ' ' + mResult.lastseen;
+      output += ' <a href="/machine/' +mResult._id + '/createjob">add a job</a>';
+      output += '<br />\r\n';
+    }
+    res.send(output);
   });
 });
 
 link.get('/job/:jobid([0-9a-fA-F]{24})/retry', function(req, res) {
   var jObjectID = new ObjectID(req.params.jobid);
-  dbHyrule.collection('machines', function(eCollection, cMachines) {
-    cMachines.findAndModify(
-        {jobs:{'$elemMatch':{_id:jObjectID}}},
-        [],
-        {'$unset' : {'jobs.$.started':1,'jobs.$.timeout':1}, '$set':{'jobs.$.locked':true}}, //we lock this so clients don't get this while we're updating.
-        function (eUpdate, rUpdate) {
-          var jUpdate;
-          for (job in rUpdate.jobs){
-            if (rUpdate.jobs[job]._id == req.params.jobid) {
-              jUpdate = rUpdate.jobs[job];
-            }
-          }
-          for (task in jUpdate.tasks) {
-            delete jUpdate.tasks[task].started;
-            delete jUpdate.tasks[task].timeout;
-          }
-          cMachines.update({jobs:{'$elemMatch':{_id:jObjectID}}}, {'$set':{'jobs.$.tasks':jUpdate.tasks}, '$unset':{'jobs.$.locked':1}}, function(eee, rrr) {
-            res.send('ok');
-          });
-    });
-  });
+  dbMachines.findAndModify(
+    {jobs:{'$elemMatch':{_id:jObjectID}}},
+    [],
+    {'$unset' : {'jobs.$.started':1,'jobs.$.timeout':1}, '$set':{'jobs.$.locked':true}}, //we lock this so clients don't get this while we're updating.
+    function (eUpdate, rUpdate) {
+      var jUpdate;
+      for (job in rUpdate.jobs){
+        if (rUpdate.jobs[job]._id == req.params.jobid) {
+          jUpdate = rUpdate.jobs[job];
+        }
+      }
+      for (task in jUpdate.tasks) {
+        delete jUpdate.tasks[task].started;
+        delete jUpdate.tasks[task].timeout;
+      }
+      dbMachines.update({jobs:{'$elemMatch':{_id:jObjectID}}}, {'$set':{'jobs.$.tasks':jUpdate.tasks}, '$unset':{'jobs.$.locked':1}}, function(eee, rrr) {
+        res.send('ok');
+      });
+    }
+  );
 });
 
 link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})', function(req, res) {
@@ -238,78 +321,71 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})', function(req, res
     var mObjectID = new ObjectID(req.params.machine);
     findObject = {_id:mObjectID};
   }
-  dbHyrule.collection('machines', function(cError, cMachines) {
-    cMachines.findOne(findObject, function(fError, fResult) {
-      res.send(fResult);
-    });
+  dbMachines.findOne(findObject, function(fError, fResult) {
+    res.send(fResult);
   });
 });
 
 link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/jobs', function(req, res) {
-        dbHyrule.collection('machines', function(cError, cMachines) {
-                var findObject;
-                if (req.params.machine.length==12) {
-                        findObject = {mac:req.params.machine};
-                } else if (req.params.machine.length==24) {
-                        var mObjectID = new ObjectID(req.params.machine);
-                        findObject = {_id:mObjectID};
-                }
-                cMachines.findOne(findObject, {jobs:1}, function(fError, fResult) {
-                        if(fResult) {
-        res.send(fResult);
-      } else {
-                                res.send('failed to find machine.\n');
-                        }
-                });
-        });
+  var findObject;
+  if (req.params.machine.length==12) {
+    findObject = {mac:req.params.machine};
+  } else if (req.params.machine.length==24) {
+    var mObjectID = new ObjectID(req.params.machine);
+    findObject = {_id:mObjectID};
+  }
+  dbMachines.findOne(findObject, {jobs:1}, function(fError, fResult) {
+    if(fResult) {
+      res.send(fResult);
+    } else {
+      res.send('failed to find machine.\n');
+    }
+  });
 });
 
 function removeRdmsrPollingJob(rdmsrObject) {
 
 }
 
-function createRdmsrPollingJob(rdmsrObject) {
-  dbHyrule.collection('machines', function(cError, cMachines) {
-    for (machine in rdmsrObject.machines) {
+function createRdmsrPollingJob(rdmsrObject, callback) {
+  for (machine in rdmsrObject.machines) {
+    var findObject;
+    if (machine.length==12) {
+      findObject = {mac:machine};
+    } else if (machine.length==24) {
+      var mObjectID = new ObjectID(machine);
+      findObject = {_id:mObjectID};
+    }
 
-      var findObject;
+    var jPoll = new Object();
+    jPoll._id = new ObjectID();
+    jPoll.created = new Date();
+    jPoll.tasks = new Array();
+    jPoll.duration = 10000;
+    jPoll.poll = 100;
 
-      if (machine.length==12) {
-        findObject = {mac:machine};
-      } else if (machine.length==24) {
-        var mObjectID = new ObjectID(machine);
-        findObject = {_id:mObjectID};
-      }
+    for(msr in rdmsrObject.machines[machine].msrs) {
+      var tPoll = new Object();
+      tPoll._id = new ObjectID();
+      tPoll.created = new Date();
+      tPoll.duration = 1000;
+      tPoll.poll = 100;
+      tPoll.task = new Object();
+      tPoll.task.rdmsr = new Object();
+      tPoll.task.rdmsr[msr] = rdmsrObject.machines[machine].msrs[msr];
+      jPoll.tasks.push(tPoll);
+    }
 
-      var jPoll = new Object();
-      jPoll._id = new ObjectID();
-      jPoll.created = new Date();
-      jPoll.tasks = new Array();
-      jPoll.duration = 10000;
-      jPoll.poll = 100;
-
-      for(msr in rdmsrObject.machines[machine].msrs) {
-        var tPoll = new Object();
-        tPoll._id = new ObjectID();
-        tPoll.created = new Date();
-        tPoll.duration = 1000;
-        tPoll.poll = 100;
-        tPoll.task = new Object();
-        tPoll.task.rdmsr = new Object();
-        tPoll.task.rdmsr[msr] = rdmsrObject.machines[machine].msrs[msr];
-        jPoll.tasks.push(tPoll);
-      }
-
-      cMachines.findAndModify( // we use findAndModify because of its atomic operation, otherwise we could lose data.
+    dbMachines.findAndModify( // we use findAndModify because of its atomic operation, otherwise we could lose data.
       findObject,
       [],
       {'$push':{'jobs':jPoll}},
-      {new:true},
       function(fError, fResult) {
-        //log(fResult);
-      });
-    }
-  });
+        if (typeof callback === "function") {
+          callback('ok');
+        }
+    });
+  }
 }
 
 link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/rdmsr/:msr([0-9a-fA-F]+)/:affinity([0-9a-fA-F]+)?', function(req, res, next) {
@@ -351,127 +427,159 @@ link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/rdmsr/:msr([0-9a-fA
 });
 
 link.get('/machine/:machine([0-9a-fA-F]{12}|[0-9a-fA-F]{24})/createjob', function(req, res) {
-  dbHyrule.collection('machines', function(cError, cMachines) {
-    var findObject;
-    if (req.params.machine.length==12) {
-      findObject = {mac:req.params.machine};
-    } else if (req.params.machine.length==24) {
-      var mObjectID = new ObjectID(req.params.machine);
-      findObject = {_id:mObjectID};
-    }
-    cMachines.findOne(findObject, function(fError, fResult) {
-      if(fResult) {
-        var jPoll = new Object();
-        jPoll._id = new ObjectID();
-        jPoll.created = new Date();
-        jPoll.tasks = new Array();
-        jPoll.duration = 110000;
-        fResult.jobs.push(jPoll);
-        for(var n=1;n<=10;n++) {
-          var tPoll = new Object();
-          tPoll._id = new ObjectID();
-          tPoll.created = new Date();
-          tPoll.duration = 2000;
-          tPoll.task = {execpass:"c:\\pollmsr.exe 1486"};
-          fResult.jobs[fResult.jobs.length-1].tasks.push(tPoll);
-        }
-        cMachines.save(fResult, {}, function(err,callback){ // this is dangerous, we could lose data.
-          if(err && !err.ok) {
-            res.send('failed to create.\n');
-          } else {
-            res.send(JSON.stringify(jPoll));
-          }
-        });
-      } else {
-        res.send('failed to find machine.\n');
-      }
-    });
-  });
+  var findObject;
+  if (req.params.machine.length==12) {
+    findObject = {mac:req.params.machine};
+  } else if (req.params.machine.length==24) {
+    var mObjectID = new ObjectID(req.params.machine);
+    findObject = {_id:mObjectID};
+  }
+
+  rdmsrObject = new Object();
+  rdmsrObject.machines = new Object();
+  rdmsrObject.machines[req.params.machine] = new Object();
+  rdmsrObject.machines[req.params.machine].msrs = new Object();
+  rdmsrObject.machines[req.params.machine].msrs[1486] = 'ff';
+
+//  createRdmsrPollingJob(rdmsrObject, res.send);
+  createRdmsrJobs(findObject, res.send);
 });
+
+function createRdmsrJobs(findObject, callback) {
+  var jPoll = new Object();
+  jPoll._id = new ObjectID();
+  jPoll.created = new Date();
+  jPoll.tasks = new Array();
+  jPoll.duration = 7000;
+
+  for(var n=1;n<=1;n++) {
+    var tPoll = new Object();
+    tPoll._id = new ObjectID();
+    tPoll.created = new Date();
+    tPoll.duration = 5000;
+    tPoll.timeoutkill = true;
+    tPoll.failkill = true;
+    tPoll.task = {execpass:"c:\\pollmsr.exe 1486"};
+    jPoll.tasks.push(tPoll);
+  }
+
+
+  dbMachines.findAndModify(
+    findObject,
+    [],
+    {'$push':{'jobs':jPoll}},
+    {new:true},
+    function(mErr, mResult) {
+      if (typeof callback === "function") {
+        if(err && !err.ok) {
+          callback("failed to create.\n");
+        } else {
+          callback(JSON.stringify(jPoll));
+        }
+      }
+    }
+  );
+}
 
 link.get('/job/:jobid([0-9a-fA-F]{24})', function(req, res) {
   var jObjectID = new ObjectID(req.params.jobid);
-  dbHyrule.collection('jobs', function(cError, cJobs) {
-    cJobs.findOne({_id:jObjectID}, function(fError, fResult) {
-      res.send(fResult);
-    });
+  dbJobs.findOne({_id:jObjectID}, function(fError, fResult) {
+    res.send(fResult);
   });
 });
 
 link.get('/task/:taskid([0-9a-fA-F]{24})', function(req, res) {
   var tObjectID = new ObjectID(req.params.taskid);
-  dbHyrule.collection('tasks', function(cError, cTasks) {
-    cTasks.findOne({_id:tObjectID}, function(fError, fResult) {
-      res.send(fResult);
-    });
+  dbTasks.findOne({_id:tObjectID}, function(fError, fResult) {
+    res.send(fResult);
   });
 });
 
 link.get('/inprogress', function(req, res){
-  dbHyrule.collection('machines', function(cError, cMachines, callback) {
-    cMachines.find({'$or':[{'jobs.started':{'$ne':null}},{'jobs.tasks.started':{'$ne':null}}]}).sort({lastseen:-1}).toArray( function(errFind, results) {
-      var output = '';
-      output += '<h1>In Progress</h1>\r\n';
-      for (result in results) {
-        var mResult = results[result];
-        output += mResult.mac + ' ';
-        for (job in mResult.jobs) {
-          var jResult = mResult.jobs[job];
-          output += 'Job: ';
-          output += jResult.started;
-          output += ' <a href="/job/' + jResult._id + '/retry">retry</a>';
-          output += '<br />\r\n';
-          for (task in jResult.tasks) {
-            var tResult = jResult.tasks[task];
-            if (tResult.started) {
-              output += 'Task: ';
-              output += JSON.stringify(tResult.task) + ' ';
-              output += tResult.started + '<br />\r\n';
-            }
+  dbMachines.find({'$or':[{'jobs.started':{'$ne':null}},{'jobs.tasks.started':{'$ne':null}}]}).sort({lastseen:-1}).toArray( function(errFind, results) {
+    var output = '';
+    output += '<h1>In Progress</h1>\r\n';
+    for (result in results) {
+      var mResult = results[result];
+      output += mResult.mac + ' ';
+      for (job in mResult.jobs) {
+        var jResult = mResult.jobs[job];
+        output += 'Job: ';
+        output += jResult.started;
+        output += ' <a href="/job/' + jResult._id + '/retry">retry</a>';
+        output += '<br />\r\n';
+        for (task in jResult.tasks) {
+          var tResult = jResult.tasks[task];
+          if (tResult.started) {
+            output += 'Task: ';
+            output += JSON.stringify(tResult.task) + ' ';
+            output += tResult.started + '<br />\r\n';
           }
         }
-        output += '<br />\r\n';
       }
-      res.send(output);
-    });
+      output += '<br />\r\n';
+    }
+    res.send(output);
   });
 });
 
 link.get('/tasks', function(req, res){
-  dbHyrule.collection('tasks', function(cError, cTasks, callback) {
-    cTasks.find().sort({started:-1}).limit(50).toArray( function(errFind, results) {
-      var output = '';
-      output += '<h1>Last 50 Tasks</h1>\r\n';
-      for (result in results) {
-        var tResult = results[result];
-        output += '<a href="/task/' + tResult._id + '">' + tResult._id + '</a>';
-        output += ' ' + tResult.machine + ' ' + tResult.started + ' ' + JSON.stringify(tResult.task) + ' ' + (tResult.completed - tResult.started);
-        if (tResult.local) {
-          output += " " + (tResult.local.completed - tResult.local.started);
-          output += " " + (tResult.started - tResult.local.started);
-          output += " " + (tResult.completed - tResult.local.completed);
-        }
-        output += '<br />\r\n';
+  dbTasks.find().sort({started:-1}).limit(50).toArray( function(errFind, results) {
+    var output = '';
+    output += '<h1>Last 50 Tasks</h1>\r\n';
+    for (result in results) {
+      var tResult = results[result];
+      output += '<a href="/task/' + tResult._id + '">' + tResult._id + '</a>';
+      output += ' ' + tResult.machine + ' ' + tResult.started + ' ' + JSON.stringify(tResult.task) + ' ' + (tResult.completed - tResult.started);
+      if (tResult.local) {
+        output += " " + (tResult.local.completed - tResult.local.started);
+        output += " " + (tResult.started - tResult.local.started);
+        output += " " + (tResult.completed - tResult.local.completed);
       }
-      res.send(output);
-    });
+      output += '<br />\r\n';
+    }
+    res.send(output);
   });
 });
 
 link.get('/jobs', function(req, res){
-  dbHyrule.collection('jobs', function(errCollection, collectionJobs, callback) {
-    collectionJobs.find().sort({started:-1}).limit(50).toArray( function(errFind, results) {
-      var output = '';
-      output += '<h1>Last 50 Jobs</h1>\r\n';
-      for (result in results) {
-        var jResult = results[result];
-        output += '<a href="/job/' + jResult._id + '">' + jResult._id + '</a>';
-        output += ' ' + jResult.machine + ' ' + jResult.started + ' ' + (jResult.completed - jResult.started) + '<br />\r\n';
-      }
-      res.send(output);
-    });
+  dbJobs.find().sort({started:-1}).limit(50).toArray( function(errFind, results) {
+    var output = '';
+    output += '<h1>Last 50 Jobs</h1>\r\n';
+    for (result in results) {
+      var jResult = results[result];
+      output += '<a href="/job/' + jResult._id + '">' + jResult._id + '</a>';
+      output += ' ' + jResult.machine + ' ' + jResult.started + ' ' + (jResult.completed - jResult.started) + '<br />\r\n';
+    }
+    res.send(output);
   });
 });
+
+link.get('/logs', function(req, res){
+  dbLogs.find().sort({_id:-1}).limit(50).toArray( function(errFind, results) {
+    var output = '';
+    output += '<h1>Last 50 Logs</h1>\r\n';
+    for (result in results) {
+      var lResult = results[result];
+      output += '<a href="/log/'+lResult._id + '">'+lResult._id + '</a> - ';
+      output += lResult.entries.length + " entries. <br />\r\n";
+/*      for (ts in lResult.ts) {
+        var le = lResult.ts[ts];
+        output += ts + ": ";
+        output += JSON.stringify(le.cpu['0']) + "<br />\r\n";
+      } */
+    }
+    res.send(output);
+  });
+});
+
+link.get('/log/:taskid([0-9a-fA-F]{24})', function(req, res) {
+  var tObjectID = new ObjectID(req.params.taskid);
+  dbLogs.findOne({_id:tObjectID}, function(fError, fResult) {
+    res.send(fResult);
+  });
+});
+
 
 link.get('/', function(req, res){
   res.sendfile('./templates/index.html');

@@ -25,9 +25,10 @@ var hyrule = new Object();
 hyrule.appName = "Moblin";
 hyrule.appStart = new Date();
 hyrule.moblin = new Object();
+hyrule.tasks = new Object();
 
 function log(data){
-  console.log("["+new Date().toISOString()+"] "+hyrule.appName+"."+process.pid+": "+util.inspect(data));
+  console.log("["+new Date().toISOString()+"] "+hyrule.appName+"_"+moblin.name+": "+util.inspect(data));
 }
 
 var moblin = hyrule.moblin;
@@ -36,6 +37,11 @@ var intInc = 0; // This is for creating ObjectIDs.
 moblin.name = generateObjectId();
 
 function handleProcessOnExit(code) {
+  // This gets run when the moblin is told to exit, not when it crashes.
+  // The fairy needs to track tasks pids.
+  for (task in hyrule.tasks) {
+    hyrule.tasks(task).kill("SIGTERM");
+  }
   if (this.send) {
     this.send({moblin:"I died.", code:code});
   }
@@ -86,9 +92,6 @@ function generateObjectId() {
 
   return nameNew;
 }
-
-//log("Welcome to Hyrule.");
-//log("I dub thee moblin_"+moblin.name+".");
 
 var zeldaTask = {
   host: config.zelda.http.host,
@@ -228,6 +231,7 @@ function digestTask(chunk, taskStart) {
 
   if(moblin.eatCount===1) {
     if (process.send) {
+      log("I handled my first task.");
       process.send({moblin:"I handled my first task."});
     }
   }
@@ -253,20 +257,64 @@ function digestTask(chunk, taskStart) {
     var commandLine = task.execpass.split(' ');
     var moblinTask = spawn(commandLine.shift(), commandLine);
     moblinTask.task = tastyBits;
-    moblinTask.stdout.on("data", function (data) {
-      log("task: "+data);
-    });
-    moblinTask.stderr.on("data", function (data) {
-      log("task: "+data);
-    });
+    moblinTask.task.data = '';
+    if (moblinTask.task.timeoutkill || moblinTask.task.failkill) {
+      moblinTask.certainDeath = setTimeout(timeToDie, moblinTask.task.duration, moblinTask.task._id);
+    }
+    moblinTask.stdout.parent = moblinTask;
+    moblinTask.stderr.parent = moblinTask;
+    moblinTask.stdout.on("data", moblinTaskData);
+    moblinTask.stderr.on("data", moblinTaskErr);
     moblinTask.on("exit", moblinTaskExit);
+
+    hyrule.tasks[moblinTask.task._id]=moblinTask;
   }
+}
+
+function timeToDie(taskID) {
+  var endTime = new Date();
+  log(taskID+"'s time is up!");
+  dyingTask = hyrule.tasks[taskID];
+  // Might want to do a sanity check to make sure duration and everything is done right (ie. timer fired early).
+  log(dyingTask.task.timeout.getTime());
+  log(endTime.getTime());
+  dyingTask.kill('SIGTERM');
+  delete hyrule.tasks[dyingTask.task._id];
+}
+
+function moblinTaskData(data) {
+  var logTime = new Date();
+  this.parent.task.data += data.toString();
+  var tempData = this.parent.task.data.split("\r\n");
+  this.parent.task.data = tempData.pop();
+
+  if (!tempData.length) {
+    return;
+  }
+
+  var outData = {mac:moblin.name,tlog:this.parent.task._id,data:tempData,ts:logTime.getTime()};
+
+  for(rD in tempData) {
+    var pD;
+    try {
+      pD = JSON.parse(tempData[rD]);
+    } catch (err) {
+      log("error parsing data.");
+    }
+    log(pD);
+  }
+
+  mobSockWrite(outData);
+}
+
+function moblinTaskErr(data) {
+  log("task."+this.parent.task._id+"  err: "+data.length);
 }
 
 function moblinTaskExit(code) {
   log("task."+this.task._id+": exited with code "+code);
   var endTime = new Date();
-  if (code==0) {
+  if (code==0 || this.task.timeoutpass) {
     log("PASSING THIS TASK YAY!");
     log("It took " + (endTime.getTime() - this.task.ts) + "ms to complete.");
     mobSockWrite({mac:moblin.name,pass:this.task._id,start:this.task.ts,end:endTime.getTime()});
@@ -274,6 +322,8 @@ function moblinTaskExit(code) {
     log("FAILING THIS TASK BOO!");
     mobSockWrite({mac:moblin.name,fail:this.task._id,start:this.task.ts,end:endTime.getTime()});
   }
+  clearTimeout(this.certainDeath);
+  delete hyrule.tasks[this.task._id];
 }
 
 var mobSock;
@@ -288,10 +338,8 @@ mobSockCreate();
 function mobSockCreate() {
   if (mobSock&&mobSock.readyState=="opening") {
     return;
-  } else if (mobSock) {
-    //log(mobSock.readyState);
-  }
-  
+  }  
+
   mobSock = new net.Socket();
   mobSock.id = mobSockID++;
   mobSock.on("close", mobSockOnClose);
@@ -369,13 +417,12 @@ setInterval(function() {
   lateCount = 0;
 }, 500);
 
-
 function mobSockWrite(data) {
   var td = new Date();
   var ts = td.getTime();
 
   if (ts-ls<moblin.heartRate*0.8 && !data) {
-    // Sometimes node timers fire early. We let them fire 20% early, otherwise it's a bit much. They can try again.
+    // Node timers on Windows fire early. We let them fire 20% early, otherwise it's a bit much. They can try again.
     earlyCount++;
     return;
   }

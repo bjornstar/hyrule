@@ -7,9 +7,11 @@
   <script type="text/javascript">
   <!--
 var steps = 20;
+var stepsd = 100;
 var newData = false;
+var newDatad = false;
 
-function draw () {
+function drawa () {
   if (!newData) {
     return;
   }
@@ -38,6 +40,27 @@ function draw () {
   }
   drawSquigglies(pumpLiveMachines);
   newData = false;
+}
+
+function drawd() {
+  if (!newDatad) {
+    return;
+  }
+
+  var dCanvas = document.getElementById('d');
+  var ctx = dCanvas.getContext('2d');
+
+  var height = dCanvas.height;
+  var width = dCanvas.width;
+//  var scale = height/(pump.max*pump.scale);
+  var step = width/(stepsd-1);
+
+  ctx.clearRect(0,0,width,height);
+
+  ctx.fillStyle = "#ddd";
+  ctx.rect(0,0,width,height);
+  ctx.fill();
+  newDatad=false;
 }
 
 function drawSquigglies(pump) {
@@ -118,6 +141,10 @@ var Datapump = function() {
     }
   }
   this.push = function(data) {
+    if (data==0) {
+      this.data.push(data);
+      return;
+    }
     this.nothingcount = 0;
     if (data>this.max) {
       this.max = data;
@@ -148,6 +175,11 @@ pumpLiveMachines.fill(steps);
 pumpLiveMachines.color = getColor();
 pumpLiveMachines.scale = 4;
 
+var pumpTlog = new Datapump();
+pumpTlog.fill(stepsd);
+pumpTlog.color = getColor();
+pumpTlog.scale = 4;
+
 var socket = io.connect();
 
 socket.on('connect', function() {
@@ -155,16 +187,31 @@ socket.on('connect', function() {
   var aCanvas = document.getElementById('a');
   aCanvas.width = 1000;
   aCanvas.height = 300;
+  var dCanvas = document.getElementById('d');
+  dCanvas.width = 1000;
+  dCanvas.height = 300;
 });
 
 socket.on('dash', dash);
+socket.on('tlog', tlog);
+
+function tlog(data) {
+  newDatad=true;
+  $("#e").html("<p>"+JSON.stringify(data)+"</p>\r\n");
+}
 
 var machines = new Object();
+
+function rdmsr(mID) {
+  socket.emit('rdmsr', mID);
+  return false;
+}
 
 function dash(data) {
   var b = '';
   var updated = new Array();
   var todelete = new Array();
+  console.log(data.deltaMachines);
   for (mID in data.deltaMachines) {
     if (machines[mID]) {
       machines[mID].shift();
@@ -174,7 +221,8 @@ function dash(data) {
       machines[mID].fill(steps);
       machines[mID].color = getColor();
       machines[mID].scale = 2;
-      $('#c').append("<li id=\""+mID+"\" style=\"color:rgb("+machines[mID].color+");\"><input type=\"checkbox\" id=\""+mID+"show\" /><label for=\""+mID+"show\">"+mID+"</label></li>");
+      $("#c").append("<li id=\""+mID+"\" style=\"color:rgb("+machines[mID].color+");\"><input type=\"checkbox\" id=\""+mID+"show\" /><label for=\""+mID+"show\">"+mID+"</label></li>");
+      $("#"+mID).append("<a href=\"#\" class=\"add\" onclick=\"rdmsr('"+mID+"');\">+</a>");
       $("#"+mID).hover( function() { $(this).addClass("hover"); newData = true; }, function() { $(this).removeClass("hover"); newData = true; });
     }
     updated.push(mID)
@@ -200,7 +248,8 @@ function dash(data) {
 //  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n'+b);
 }
 
-var drawInterval = setInterval(draw, 15);
+var drawaInterval = setInterval(drawa, 15);
+var drawdInterval = setInterval(drawd, 15);
 
 $(document).ready(function() {
 
@@ -216,8 +265,15 @@ $(document).ready(function() {
     #a,#b{
       float:left;
     }
-    ul {
+    ul{
       list-style-type:none;
+    }
+    .add{
+      font-weight:bold;
+    }
+    a{
+      text-decoration:none;
+      color:rgba(0,0,0,1);
     }
   </style>
   <title>Hyrule</title>
@@ -225,5 +281,7 @@ $(document).ready(function() {
 <body>
   <canvas id="a"></canvas>
   <div id="b"><ul id="c"></ul></div>
+  <canvas id="d"></canvas>
+  <div id="e"><ul id="f"></ul></div>
 </body>
 </html>

@@ -68,20 +68,43 @@ if (cluster.isMaster) { // The master keeps an eye on who is running what. It do
   hyrule.fairy.statsInterval = setInterval(fairyStats, hyrule.fairy.statsDelay);
 } else { // These fairies will spawn moblins at the behest of the master.
   var contextMoblin = new Object(); // Each moblin will inherit these from the parent fairy.
-  contextMoblin.clearInterval = clearInterval;
   contextMoblin.console = console;
   contextMoblin.process = process;
   contextMoblin.require = require;
   contextMoblin.setInterval = setInterval;
+  contextMoblin.setTimeout = setTimeout;
+  contextMoblin.clearInterval = clearInterval;
+  contextMoblin.clearTimeout = clearTimeout;
 
   process.on("message", handleMessageFairy);
   try {
     process.send({cmd:"Give me a moblin"}); 
   } catch (err) {
-    log(err);
+    log("moblin request error: "+err);
     process.exit();
   }
 //  setTimeout(function chaosMonkey() { log('The chaos monkey sends his regards.'); process.exit();}, Math.round(Math.random()*10000));
+}
+
+function sendMoblin(whichfairy) {
+  if (process.stdout._pendingWriteReqs>0) {
+    log("IPC busy, trying again later.");
+    setTimeout(sendMoblin,1000,whichfairy);
+    return;
+  }
+  if (whichfairy.stdin.destroyed) { // stillborn :'(
+    log("Giving up on this one."); // dothefairycheck will spawn new ones, don't worry.
+    return;
+  }
+  try {
+    whichfairy.send({moblin:{code:hyrule.moblin.code,script:hyrule.moblin.script,md5:hyrule.moblin.md5}});
+  } catch (err) {
+    log(err);
+    log("moblin send error: ");
+    var randomDelay = Math.floor(Math.random()*1000);
+    log(randomDelay);
+    setTimeout(sendMoblin, randomDelay, whichfairy);
+  }
 }
 
 function handleMessageMaster(data) {
@@ -90,13 +113,8 @@ function handleMessageMaster(data) {
       //log('fairy.'+this.pid+' was born.');
       break;
     case "Give me a moblin":
-      try {
-        this.md5 = hyrule.moblin.md5;
-        this.send({moblin:{code:hyrule.moblin.code,script:hyrule.moblin.script,md5:hyrule.moblin.md5}});
-      } catch (err) {
-        log(err);
-        process.exit();
-      }
+      this.md5 = hyrule.moblin.md5;
+      sendMoblin(this);
       break;
     case "stats":
       this.earlyCount += data.stats.early;
@@ -112,6 +130,7 @@ function handleMessageMaster(data) {
         break;
       }
       if (data.moblin=="I died.") {
+        //log(this.pid+" died.");
         break;
       }
       log(this.pid+' '+data);
@@ -133,14 +152,17 @@ function dothefairycheck() {
       hyrule.fairies[f].send({cmd:"die"});
       liveFairies--;
     } catch (err) {
-      log(err);
-      process.exit();
+      log("fairy kill error: "+err);
+      //process.exit();
     }
   }
 }
 
 function spawnFairies() {
   while (hyrule.fairies.length<parallelMoblins) {
+    if (process.stdout._pendingWriteReqs>0) {
+      return;
+    }
     spawnFairy();
   }
 }
@@ -157,7 +179,7 @@ function handleMessageFairy(data) {
   if (data.moblin) {
     this.moblin = data.moblin;
     if (data.moblin.code) {
-      log(this.moblin.md5);
+      //log(this.moblin.md5);
       this.moblin.script = vm.createScript(data.moblin.code, "moblin.js");
       this.moblin.script.runInNewContext(contextMoblin);
     }
@@ -195,7 +217,6 @@ function handleReadMoblin(err, data) {
   log("Moblin MD5: "+hyrule.moblin.md5);
   hyrule.moblin.code = data;
   hyrule.moblin.script = vm.createScript(data, "moblin.js");
-  log(vm.createScript(data, "moblin.js"));
 }
 
 function spawnMoblin() {
@@ -208,7 +229,7 @@ function spawnMoblin() {
     try {
       newMoblin.send({fairy:"Goodbye."});
     } catch (err) {
-      log(err);
+      log("fairy exiting error: "+err);
       process.exit();
     }
   });
@@ -286,7 +307,7 @@ function moblinDownload() {
       vNewMoblin = vNewMoblin + chunk;
     });
     res.on("close", function resDownloadClose(error) {
-      console.log(error);
+      log(error);
     });
     res.on("end", function resDownloadEnd() {
       handleDownloadEnd(vNewMoblin);
