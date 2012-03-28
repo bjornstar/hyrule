@@ -84,8 +84,13 @@ function socketOnRdmsr(data) {
   createRdmsrJobs(findObject);
 
   log('Client '+this.id+' requested rdmsr.');
-  socketClients[this.id].logsInterval = setInterval(logsPush, defaultFrequency, this);
-  socketClients[this.id].logsEmptyStart = -1;
+
+  if (!socketClients[this.id].running) {
+    socketClients[this.id].logsInterval = setInterval(logsPush, defaultFrequency, this);
+    socketClients[this.id].logsRunning = true;
+    socketClients[this.id].logsEmptyStart = -1;
+    socketClients[this.id].liveTasks = new Object();
+  }
 }
 
 function logsPush(dSocket) {
@@ -108,38 +113,58 @@ function logsPush(dSocket) {
 
   var fieldsLogs = new Object();
   fieldsLogs["entries.cpu.0.1486"]=1;
+  fieldsLogs["entries.cpu.0.1423"]=1;
   fieldsLogs["entries.ts"]=1;
   fieldsLogs["entries"]={"$slice":-10000};
 
   dbLogs.find(findLogs, fieldsLogs).toArray( function(errFind, rLogs) {
+    delete logsInProgress[dSocket.id];
+
     if (!logsSocket) {
       return;
     }
 
-    if (socketClients[dSocket.id].logsEmptyStart<thispointintime && socketClients[dSocket.id].logsEmptyStart>-1) {
-      clearInterval(socketClients[dSocket.id].logsInterval);
+    var pMid = new Date();
+
+    if (logsSocket.logsEmptyStart<thispointintime && logsSocket.logsEmptyStart>-1) {
+      clearInterval(logsSocket.logsInterval);
+      logsSocket.logsRunning = false;
     }
 
-    delete logsInProgress[dSocket.id];
-
     if (!rLogs.length) {
-      if (socketClients[dSocket.id].logsEmptyStart==-1) {
-        socketClients[dSocket.id].logsEmptyStart = pStart.getTime();
+      if (logsSocket.logsEmptyStart==-1) {
+        logsSocket.logsEmptyStart = pStart.getTime();
       }
       return;
     } else {
-      socketClients[dSocket.id].logsEmptyStart = -1;
+      logsSocket.logsEmptyStart = -1;
     }
 
     var output = new Object();
 
-    for (rM in rLogs) {
-      rID = rLogs[rM]._id;
+    for (rT in rLogs) {
+      var lTask = rLogs[rT];
+      rID = lTask._id;
+
+      if (!logsSocket.liveTasks[rID]) {
+        logsSocket.liveTasks[rID] = new Object();
+        logsSocket.liveTasks[rID].lastseen = pStart.getTime();
+      }
+
       output[rID] = new Array();
-      for (rE in rLogs[rM].entries) {
-        output[rID].push(rLogs[rM].entries[rE]);
+
+      for (rE in lTask.entries) {
+        var lEntry = lTask.entries[rE];
+        if (lEntry.ts < logsSocket.liveTasks[rID].last) {
+          continue;
+        }
+        output[rID].push(lEntry);
+        logsSocket.liveTasks[rID].last = lEntry.ts;
       }
     }
+
+    var pEnd = new Date();
+    log((pEnd.getTime()-pMid.getTime()) + " " + (pEnd.getTime()-pStart.getTime()));
 
     dSocket.emit('tlog',output);
   });
@@ -235,7 +260,7 @@ function dashPush(dSocket) {
       output.msPerClient = 0;
     }
     var pEnd = new Date();
-    //log((pEnd.getTime()-pStart.getTime())+' '+(pMid.getTime()-pStart.getTime()));
+//    log((pEnd.getTime()-pStart.getTime())+' '+(pMid.getTime()-pStart.getTime()));
 
     dSocket.emit('dash', output);
 
@@ -450,16 +475,18 @@ function createRdmsrJobs(findObject, callback) {
   jPoll._id = new ObjectID();
   jPoll.created = new Date();
   jPoll.tasks = new Array();
-  jPoll.duration = 7000;
+  jPoll.duration = 18000;
 
-  for(var n=1;n<=1;n++) {
+  for(var n=1;n<=3;n++) {
     var tPoll = new Object();
     tPoll._id = new ObjectID();
     tPoll.created = new Date();
     tPoll.duration = 5000;
-    tPoll.timeoutkill = true;
-    tPoll.failkill = true;
-    tPoll.task = {execpass:"c:\\pollmsr.exe 1486"};
+//    tPoll.timeoutfail = false;
+//    tPoll.failkill = true;
+    tPoll.passkill = true;
+    tPoll.timeoutpass = true;
+    tPoll.task = {execpass:"c:\\pollmsr.exe 1486 1423"};
     jPoll.tasks.push(tPoll);
   }
 
@@ -530,7 +557,13 @@ link.get('/tasks', function(req, res){
     for (result in results) {
       var tResult = results[result];
       output += '<a href="/task/' + tResult._id + '">' + tResult._id + '</a>';
-      output += ' ' + tResult.machine + ' ' + tResult.started + ' ' + JSON.stringify(tResult.task) + ' ' + (tResult.completed - tResult.started);
+      output += ' <a href="/machine/' + tResult.machine + '">' + tResult.machine + '</a>\r\n';
+      output += ' ' + tResult.started + ' ' + JSON.stringify(tResult.task) + '\r\n';
+      if (tResult.completed) {
+        output += ' passed ' + (tResult.completed.getTime() - tResult.started.getTime());
+      } else if (tResult.failed) {
+        output += ' failed ' + (tResult.failed.getTime() - tResult.started.getTime());
+      }
       if (tResult.local) {
         output += " " + (tResult.local.completed - tResult.local.started);
         output += " " + (tResult.started - tResult.local.started);

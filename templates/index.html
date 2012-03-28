@@ -124,11 +124,12 @@ function getColor() {
 }
 
 var Datapump = function() {
+  var index = 0;
   this.color = [0,0,0];
   this.scale = 1;
   this.max = 1;
   this.data = [ 0 ];
-  var index = 0;
+  this.index = index;
   this.nothingcount = 0;
   this.nothing = function() {
     this.nothingcount++;
@@ -141,15 +142,20 @@ var Datapump = function() {
     }
   }
   this.push = function(data) {
-    if (data==0) {
-      this.data.push(data);
+    if (typeof data == "number"||data===null) {
+      data = new Array(index,data);
+      index++;
+    }
+    if (data[1]==0) {
+      this.data.push(0);
       return;
     }
     this.nothingcount = 0;
-    if (data>this.max) {
-      this.max = data;
+    if (data[1]>this.max) {
+      this.max = data[1];
     }
-    this.data.push(data);
+    this.data.push(data[1]);
+    this.shift();
   }
   this.shift = function() {
     var shiftval = this.data.shift();
@@ -175,11 +181,6 @@ pumpLiveMachines.fill(steps);
 pumpLiveMachines.color = getColor();
 pumpLiveMachines.scale = 4;
 
-var pumpTlog = new Datapump();
-pumpTlog.fill(stepsd);
-pumpTlog.color = getColor();
-pumpTlog.scale = 4;
-
 var socket = io.connect();
 
 socket.on('connect', function() {
@@ -196,11 +197,36 @@ socket.on('dash', dash);
 socket.on('tlog', tlog);
 
 function tlog(data) {
+  for (tID in data) {
+    if (!tasks[tID]) {
+      tasks[tID] = new Object();
+      tasks[tID].cpu = new Object();
+      tasks[tID].cpu["0"] = new Object();
+      tasks[tID].cpu["0"]["1486"] = new Datapump();
+      tasks[tID].cpu["0"]["1423"] = new Datapump();
+      var pow = tasks[tID].cpu["0"]["1486"];
+      var tem = tasks[tID].cpu["0"]["1423"];
+      pow.fill(stepsd);
+      tem.fill(stepsd);
+      pow.color = getColor();
+      tem.color = getColor();
+      pow.scale = 2;
+      tem.scale = 2;
+      $("#f").append("<li id=\""+tID+"\" style=\"color:rgb("+pow.color+");\">"+tID+"</li>");
+    }
+    while (data[tID].length) {
+      var cD = data[tID].pop();
+      tasks[tID].cpu["0"]["1486"].push(new Array(cD.ts, parseInt(cD.cpu["0"]["1486"], 16)));
+      tasks[tID].cpu["0"]["1423"].push(new Array(cD.ts, parseInt(cD.cpu["0"]["1423"], 16)));
+    }
+  }
+
   newDatad=true;
-  $("#e").html("<p>"+JSON.stringify(data)+"</p>\r\n");
+//  $("#e").append("<p>"+JSON.stringify(tasks)+"</p>\r\n");
 }
 
 var machines = new Object();
+var tasks = new Object();
 
 function rdmsr(mID) {
   socket.emit('rdmsr', mID);
@@ -211,10 +237,9 @@ function dash(data) {
   var b = '';
   var updated = new Array();
   var todelete = new Array();
-  console.log(data.deltaMachines);
+
   for (mID in data.deltaMachines) {
     if (machines[mID]) {
-      machines[mID].shift();
       machines[mID].push(data.deltaMachines[mID]);
     } else {
       machines[mID] = new Datapump();
@@ -227,6 +252,7 @@ function dash(data) {
     }
     updated.push(mID)
   }
+
   for (mID in machines) {
     if (updated.indexOf(mID)==-1) {
       machines[mID].nothing();
@@ -235,14 +261,14 @@ function dash(data) {
       todelete.push(mID);
     }
   }
+
   for (dID in todelete) {
     var mID=todelete[dID]
     delete machines[mID];
     $("#"+mID).remove();
   }
-  dashPump.shift();
+
   dashPump.push(data.deltaLive);
-  pumpLiveMachines.shift()
   pumpLiveMachines.push(data.liveMachines);
   newData = true;
 //  $('#b').html('<p>'+JSON.stringify(data)+'</p>\r\n'+b);

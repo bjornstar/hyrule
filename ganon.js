@@ -1,5 +1,4 @@
 var mongodb = require('mongodb');
-var util    = require('util');
 
 var ObjectID = mongodb.ObjectID;
 
@@ -8,13 +7,14 @@ var dbHyrule = new mongodb.Db('hyrule', serverHyrule, {});
 var cMachines = new mongodb.Collection(dbHyrule, 'machines');
 var cJobs = new mongodb.Collection(dbHyrule, 'jobs');
 var cTasks = new mongodb.Collection(dbHyrule, 'tasks');
+var cLogs = new mongodb.Collection(dbHyrule, 'logs');
 
 var hyrule = new Object();
 hyrule.appName = 'Ganon';
 hyrule.appStart = new Date();
 
 function log(data) {
-  console.log("["+new Date().toISOString()+"] "+hyrule.appName+"."+process.pid+": "+util.inspect(data));
+  console.log("["+new Date().toISOString()+"] "+hyrule.appName+"."+process.pid+": "+JSON.stringify(data));
 }
 
 dbHyrule.open(function() {
@@ -25,13 +25,16 @@ dbHyrule.open(function() {
 
 
 var ganonTimer = 1000;
+var secondsago = 10;
 
 function ganonTime() {
   var now = new Date();
+  var onesecondago = new Date(now.getTime-1000);
   var findObject = new Object();
   findObject["$or"] = new Array();
-  findObject["$or"].push({"jobs.tasks.timeout":{$lt:now}});
+  findObject["$or"].push({"jobs.tasks.timeout":{$lt:onesecondago}});
   findObject["$or"].push({"jobs.timeout":{$lt:now}});
+
   cMachines.find(findObject).toArray( function(fError, fMachines) {
     if (fError) {
       log(fError);
@@ -118,7 +121,7 @@ function failMachine(machines, when) {
         if (err) {
           log("error updating machines.");
         } else {
-          log("removed "+JSON.stringify(updateTaskObject));
+          log("removed task "+JSON.stringify(updateTaskObject));
         }
       });
 
@@ -148,10 +151,11 @@ function failMachine(machines, when) {
     }
 
     cMachines.update(findObject, updateJobObject, function(err, callback) {
+      var end = new Date();
       if (err) {
         log("error updating machines.");
       } else {
-        log("removed "+JSON.stringify(updateJobObject));
+        log("removed job  "+JSON.stringify(updateJobObject));
       }
     });
   }
@@ -159,20 +163,38 @@ function failMachine(machines, when) {
 
 function idleTimeout() {
   var now = new Date();
-  var aminuteago = new Date(now.getTime()-10*1000);
+  var sometimeago = new Date(now.getTime()-secondsago*1000);
 
   var findObject = new Object();
   findObject.alive = true;
   findObject.lastseen = new Object();
-  findObject.lastseen['$lt'] = aminuteago;
+  findObject.lastseen['$lt'] = sometimeago;
 
   var setObject = {'$set':{alive:false}};
 
   cMachines.update(findObject, setObject, {safe:true, multi:true, upsert:false}, function () {
     var end = new Date();
-    //log("idle timeout: "+(end.getTime()-now.getTime()));
+    log("idle timeout: "+(end.getTime()-now.getTime()));
+  });
+}
+
+function taskTimeout() {
+  var now = new Date();
+  var sometimeago = new Date(now.getTime()-secondsago*1000);
+
+  var findObject = new Object();
+  findObject.live = true;
+  findObject['entries.ts'] = new Object();
+  findObject['entries.ts']['$lt'] = sometimeago.getTime();
+
+  var setObject = {'$set':{live:false}};
+log(findObject);
+  cLogs.update(findObject, setObject, {safe:true, multi:true, upsert:false}, function() {
+    var end = new Date();
+    log("task timeout: "+(end.getTime()-now.getTime()));
   });
 }
 
 setInterval(idleTimeout, ganonTimer);
 setInterval(ganonTime, ganonTimer);
+setInterval(taskTimeout, ganonTimer);

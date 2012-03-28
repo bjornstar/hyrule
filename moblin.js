@@ -3,7 +3,6 @@ var http   = require("http");
 var net    = require("net");
 var os     = require("os");
 var spawn  = require("child_process").spawn;
-var util   = require("util");
 
 //process.on("message", handleParentMessage);
 process.on("exit", handleProcessOnExit);
@@ -28,7 +27,7 @@ hyrule.moblin = new Object();
 hyrule.tasks = new Object();
 
 function log(data){
-  console.log("["+new Date().toISOString()+"] "+hyrule.appName+"_"+moblin.name+": "+util.inspect(data));
+  console.log("["+new Date().toISOString()+"] "+hyrule.appName+"_"+moblin.name+": "+JSON.stringify(data));
 }
 
 var moblin = hyrule.moblin;
@@ -217,8 +216,8 @@ function digestTask(chunk, taskStart) {
     return;
   }
 
-  if (tastyBits.ok) {
-    log(tastyBits.ok + ' passed ok.');
+  if (tastyBits.ok) { // We need to figure out how to handle pass/fail here.
+    log(tastyBits);
     return;
   }
 
@@ -258,8 +257,10 @@ function digestTask(chunk, taskStart) {
     var moblinTask = spawn(commandLine.shift(), commandLine);
     moblinTask.task = tastyBits;
     moblinTask.task.data = '';
-    if (moblinTask.task.timeoutkill || moblinTask.task.failkill) {
+    if (moblinTask.task.timeoutpass || moblinTask.task.timeoutfail) {
       moblinTask.certainDeath = setTimeout(timeToDie, moblinTask.task.duration, moblinTask.task._id);
+      var deathTime = new Date(taskEnd.getTime() + moblinTask.task.duration);
+      moblinTask.deathts = deathTime.getTime();
     }
     moblinTask.stdout.parent = moblinTask;
     moblinTask.stderr.parent = moblinTask;
@@ -276,10 +277,16 @@ function timeToDie(taskID) {
   log(taskID+"'s time is up!");
   dyingTask = hyrule.tasks[taskID];
   // Might want to do a sanity check to make sure duration and everything is done right (ie. timer fired early).
-  log(dyingTask.task.timeout.getTime());
-  log(endTime.getTime());
-  dyingTask.kill('SIGTERM');
-  delete hyrule.tasks[dyingTask.task._id];
+  log(endTime.getTime() - dyingTask.deathts);
+  if (dyingTask.task.passkill || dyingTask.task.failkill) {
+    dyingTask.kill('SIGTERM'); // Killing it will trigger a pass or fail message.
+  } else if (dyingTask.task.timeoutpass) {
+    mobSockWrite({mac:moblin.name,pass:this.task._id,start:this.task.ts,ts:endTime.getTime()});
+  } else if (dyingTask.task.timeoutfail) {
+    mobSockWrite({mac:moblin.name,fail:this.task._id,start:this.task.ts,ts:endTime.getTime()});
+  } else {
+    log("Time is up, but no instructions on how to proceed.");
+  }
 }
 
 function moblinTaskData(data) {
@@ -301,7 +308,7 @@ function moblinTaskData(data) {
     } catch (err) {
       log("error parsing data.");
     }
-    log(pD);
+//    log(pD);
   }
 
   mobSockWrite(outData);
@@ -314,13 +321,13 @@ function moblinTaskErr(data) {
 function moblinTaskExit(code) {
   log("task."+this.task._id+": exited with code "+code);
   var endTime = new Date();
-  if (code==0 || this.task.timeoutpass) {
+  if (code==0 || (code==null && this.task.timeoutpass)) {
     log("PASSING THIS TASK YAY!");
     log("It took " + (endTime.getTime() - this.task.ts) + "ms to complete.");
-    mobSockWrite({mac:moblin.name,pass:this.task._id,start:this.task.ts,end:endTime.getTime()});
+    mobSockWrite({mac:moblin.name,pass:this.task._id,start:this.task.ts,ts:endTime.getTime()});
   } else {
     log("FAILING THIS TASK BOO!");
-    mobSockWrite({mac:moblin.name,fail:this.task._id,start:this.task.ts,end:endTime.getTime()});
+    mobSockWrite({mac:moblin.name,fail:this.task._id,code:code,start:this.task.ts,ts:endTime.getTime()});
   }
   clearTimeout(this.certainDeath);
   delete hyrule.tasks[this.task._id];
@@ -354,12 +361,12 @@ function mobSockCreate() {
 }
 
 function mobSockOnTimeout() {
-  log("This socket has timed out.");
+  //log("This socket has timed out.");
   mobSock.end();
 }
 
 function mobSockOnClose(had_error) {
-//  log("mobSock"+mobSock.id+" closed.");
+  //log("mobSock"+mobSock.id+" closed.");
   if (mobSockWriteInterval) {
     clearInterval(mobSockWriteInterval);
     delete mobSockWriteInterval;
@@ -448,4 +455,5 @@ function mobSockWrite(data) {
     log(err);
   }
 }
+
 

@@ -356,14 +356,14 @@ function Client(mac) {
         if (famErr && !famErr.ok) {
           log('Error in findAndModify');
           self.res.json(self.taskOut);
-          delete inProgress[self.req.mac];
+          delete inProgress[self.mac];
           return;
         }
 
         if (famMachine==null) {
           log('Could not find the machine.');
           self.res.json(self.taskOut);
-          delete inProgress[self.req.mac];
+          delete inProgress[self.mac];
           return;
         }
 
@@ -388,7 +388,6 @@ function Client(mac) {
         }
 
 // Every request from the client, we need to do up to here. ^^^^^^^^^^^^^
-
         self.doyourthang();
 
 // And after here. vvvvvvvvvv
@@ -473,32 +472,33 @@ function Client(mac) {
     }
     tStart.ts = self.req.ts;
     self.res.json(tStart); // We're not waiting for the save event to finish.
-    delete inProgress[self.req.mac];
+    delete inProgress[self.mac];
 
     self.end = new Date();
     // log(self.end - self.start);
   }
 
   function passThang() {
-    var jPass;
     var tRemove = -1;
+    var jRemove = -1;
 
     var updateObject = new Object();
     updateObject['$pull'] = new Object();
 
     var uO = updateObject['$pull'];
+    var jobs = self.machine.jobs;
 
-    for (job in self.machine.jobs) {
-      if (!self.machine.jobs[job].started) { // Dont' bother looking if it hasn't started.
+    for (job in jobs) {
+      if (!jobs[job].started) { // Dont' bother looking if it hasn't started.
         break;
       }
 
-      if (self.machine.jobs[job].locked) { // Don't bother looking if it's locked.
+      if (jobs[job].locked) { // Don't bother looking if it's locked.
         break;
       }
 
-      jPass = self.machine.jobs[job];
-      jRemove = job;
+      var jPass;
+      jPass = jobs[job];
 
       for (task in jPass.tasks) {
         if (self.taskID != jPass.tasks[task]._id) {
@@ -519,7 +519,7 @@ function Client(mac) {
         delete tLog.duration;
         tLog.local = new Object();
         tLog.local.started = self.req.start;
-        tLog.local.completed = self.req.end;
+        tLog.local.completed = self.req.ts;
 
         dbHyrule.collection('tasks', function(err, collectionTask) {
           collectionTask.insert(tLog);
@@ -529,27 +529,41 @@ function Client(mac) {
         uO['jobs.'+job+'.tasks']._id = tLog._id;
 
         tRemove = task;
+        jRemove = job;
+        break;
       }
     }
 
+log(jobs);
     if (tRemove == -1) {
+      log("tRemove missing.");
+      delete inProgress[self.machine._id];
       return;
     }
 
-    jPass.tasks.splice(tRemove,1);
+    if (jRemove == -1) {
+      log("jRemove missing.");
+      delete inProgress[self.machine._id];
+      return;
+    }
 
-    if (jPass.tasks.length==0) {
-      var jLog = self.machine.jobs.splice(jRemove,1);
-      jLog.machine = self.machine._id;
-      jLog.completed = new Date();
-      delete jLog.tasks;
+    jobs[jRemove].tasks.splice(tRemove,1);
+
+    if (jobs[jRemove].tasks.length==0) {
+      jobs[jRemove].machine = self.machine._id;
+      jobs[jRemove].completed = new Date();
+      delete jobs[jRemove].tasks;
       dbHyrule.collection('jobs', function(err, collectionJob) {
-        collectionJob.insert(jLog);
+        collectionJob.insert(jobs[jRemove]);
       });
 
       uO['jobs'] = new Object();
-      uO['jobs']._id = jLog._id;
+      uO['jobs']._id = jobs[jRemove]._id;
+
+      delete uO['jobs.'+jRemove+'.tasks'];
     }
+
+    log('passed: ' + JSON.stringify(updateObject));
 
     cMachines.update(self.findObject, updateObject);
 
@@ -562,11 +576,94 @@ function Client(mac) {
 
     cLogs.update(findLog, updateLog);
 
-    self.res.json({ok:self.req.pass}); // Here we wait until save completes before responding.
-    delete inProgress[self.req.mac];
+    self.res.json({ok:self.req.pass});
+    delete inProgress[self.mac];
   }
 
   function failThang() {
+    var tRemove = -1;
+    var jRemove = -1;
+
+    var updateObject = new Object();
+    updateObject['$pull'] = new Object();
+
+    var uO = updateObject['$pull'];
+    var jobs = self.machine.jobs;
+
+    for (job in jobs) {
+      if (!jobs[job].started) { // Dont' bother looking if it hasn't started.
+        break;
+      }
+
+      if (jobs[job].locked) { // Don't bother looking if it's locked.
+        break;
+      }
+
+      var jFail;
+      jFail = jobs[job];
+
+      for (task in jFail.tasks) {
+        if (self.taskID != jFail.tasks[task]._id) {
+          continue;
+        }
+
+        if (!jFail.tasks[task].started) {
+          var now = new Date();
+          log('NOT STARTED!!!! ' + JSON.stringify(jFail.tasks[task]) + ' ' + self.start.getTime() + ' ' + now.getTime());
+          break;
+        }
+
+        var tFail = jFail.tasks[task];
+        tFail.machine = self.machine._id;
+        tFail.job = jFail._id;
+        tFail.failed = new Date();
+        delete tFail.timeout;
+        delete tFail.duration;
+        tFail.local = new Object();
+        tFail.local.started = self.req.start;
+        tFail.local.failed = self.req.ts;
+
+        dbHyrule.collection('tasks', function(err, collectionTask) {
+          collectionTask.insert(tFail);
+        });
+
+        uO['jobs.'+job+'.tasks'] = new Object();
+        uO['jobs.'+job+'.tasks']._id = tFail._id;
+
+        tRemove = task;
+        jRemove = job;
+        break;
+      }
+    }
+
+    if (tRemove == -1) {
+      return;
+    }
+
+    if (jRemove == -1) {
+      return;
+    }
+
+    jobs[jRemove].tasks.splice(tRemove,1);
+
+    if (jobs[jRemove].tasks.length==0) {
+      jobs[jRemove].machine = self.machine._id;
+      jobs[jRemove].failed = new Date();
+      delete jobs[jRemove].tasks;
+      dbHyrule.collection('jobs', function(err, collectionJob) {
+        collectionJob.insert(jobs[jRemove]);
+      });
+
+      uO['jobs'] = new Object();
+      uO['jobs']._id = jobs[jRemove]._id;
+
+      delete uO['jobs.'+jRemove+'.tasks']; //There are no more tasks, so just remove the job.
+    }
+
+    log('failed: ' + JSON.stringify(updateObject));
+
+    cMachines.update(self.findObject, updateObject);
+
     var findLog = new Object();
     findLog._id = new ObjectID(self.taskID);
 
@@ -576,50 +673,8 @@ function Client(mac) {
 
     cLogs.update(findLog, updateLog);
 
-    delete inProgress[self.req.mac];
-
-/*
-		dbHyrule.collection('tasks', function(err, collectionTask) {
-			if (self.machine.jobs.length && self.machine.jobs[0].started && !self.machine.jobs[0].locked) { // don't pass if locked.
-				if (self.machine.jobs[0].tasks.length && self.machine.jobs[0].tasks[0].started) {
-					var taskDone = new Object();
-					taskDone = self.machine.jobs[0].tasks.shift();
-					taskDone.machine = self.machine._id;
-					taskDone.job = self.machine.jobs[0]._id;
-					taskDone.completed = new Date();
-					collectionTask.insert(taskDone);
-					if (self.machine.jobs[0].tasks.length==0) {
-						var jobDone = new Object();
-						jobDone = self.machine.jobs.shift();
-						jobDone.machine = self.machine._id;
-						jobDone.completed = new Date();
-						jobDone.fail = true;
-						delete jobDone.tasks;
-						dbHyrule.collection('jobs', function(err, collectionJob) {
-							collectionJob.insert(jobDone);
-						});
-					}
-					cMachines.save(self.machine, {}, function(err,callback){
-						if (err && !err.ok) {
-							appendError({'errorData':err,'errorin':'updating machine on pass.'});
-							self.res.send('not ok.\n');
-						} else {
-							self.res.send('ok\n');
-						}
-					});
-				} else {
-					log('no tasks to pass.');
-					self.res.send('no tasks to pass.');
-				}
-			} else if (self.machine.jobs[0].locked) {
-				log('job is locked!');
-				self.res.send('locked.');
-			} else {
-				log('no jobs to pass.');
-				self.res.send('no jobs to pass.');
-			}
-		}); */
-
+    self.res.json({ok:self.req.fail});
+    delete inProgress[self.mac];
   }
 
   function deadThang() {
@@ -628,13 +683,15 @@ function Client(mac) {
     updateMachine['$set'].alive = false;
     cMachines.update(self.findObject,updateMachine);
 
-    delete inProgress[self.req.mac];
+    delete inProgress[self.mac];
   }
 
   function logThang() {
+    var now = new Date();
+
     var findLog = new Object();
     findLog._id = new ObjectID(self.req.tlog);
-    findLog.machine = new ObjectID(self.req.mac);
+    findLog.machine = new ObjectID(self.mac);
 
     var updateLog = new Object();
     updateLog['$set'] = new Object();
@@ -642,6 +699,7 @@ function Client(mac) {
 
     var usetLog = updateLog['$set'];
     usetLog.live = true;
+    usetLog.lastseen = now.getTime();
 
     var upushLog = updateLog['$pushAll'];
     upushLog['entries'] = new Array();
@@ -663,8 +721,8 @@ function Client(mac) {
     }
 
     cLogs.update(findLog, updateLog, {upsert: true});
-    
-    delete inProgress[self.req.mac];
+log("logged "+self.req.tlog);    
+    delete inProgress[self.mac];
   }
 
   function task(req, res) {
@@ -941,7 +999,7 @@ function zelSockOnData(incomingdata) {
       defaultPause-=5;
     }
 
-    if (moblinData.mac==undefined) {
+    if (moblinData.mac==undefined || moblinData.ts==undefined) {
       log(moblinData);
     }
 
