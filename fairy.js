@@ -1,6 +1,3 @@
-var config = new Object();
-config.zelda = {"http":{"host":"10.30.0.73","port":3000},"socket":{"host":"10.30.0.73","port":3003}};
-
 var cluster = require("cluster");
 var crypto  = require("crypto");
 var fork    = require("child_process").fork;
