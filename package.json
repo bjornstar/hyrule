@@ -1,7 +1,7 @@
 {
   "name": "hyrule",
   "description": "A magical wonderland where hardware gets tested.",
-  "version": "0.0.32",
+  "version": "0.0.33",
   "dependencies": {
     "redis": ">=0.7.1",
     "mongodb": ">=0.9.9",
@@ -9,7 +9,7 @@
     "socket.io": ">=0.9.1"
   },
   "engines": {
-    "node": ">=0.6.12"
+    "node": ">=0.8.1"
   },
   "scripts": {
     "start": ["zelda.js", "link.js", "ganon.js"]

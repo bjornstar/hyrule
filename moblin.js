@@ -357,7 +357,7 @@ function mobSockCreate() {
   mobSock.setTimeout(mobSockTimeout);
 
   mobSock.connect(config.zelda.socket.port, config.zelda.socket.host, mobSockOnConnect);
-  //log("Created mobSock"+mobSock.id+".");
+  log("Created mobSock"+mobSock.id+".");
 }
 
 function mobSockOnTimeout() {
@@ -366,7 +366,7 @@ function mobSockOnTimeout() {
 }
 
 function mobSockOnClose(had_error) {
-  //log("mobSock"+mobSock.id+" closed.");
+  log("mobSock"+mobSock.id+" closed.");
   if (mobSockWriteInterval) {
     clearInterval(mobSockWriteInterval);
     delete mobSockWriteInterval;

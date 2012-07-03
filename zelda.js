@@ -157,13 +157,7 @@ function handleMessageFromWorker(msg) {
     case "moblincode":
       this.send({cmd:"moblincode",code:hyrule.moblin.code});
       break;
-    case "online":
-      this.send({cmd:"fairycode",code:hyrule.fairy.code});
-      this.send({cmd:"fairymd5",md5:hyrule.fairy.md5});
-      this.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
-      this.send({cmd:"moblincode",code:hyrule.moblin.code});
-      break;
-    case "earlyOut":
+   case "earlyOut":
       cluster.earlyOuts++;
       this.earlyOuts++;
       break;
@@ -209,7 +203,7 @@ function handleMessageFromWorker(msg) {
       this.machines[msg.socketid] = msg.machineid;
       break;
     default:
-      log(msg);
+      log(msg + "\n\n message from worker");
   }
 }
 
@@ -234,11 +228,6 @@ function spawnWorker() {
   worker.dbHits = 0;
   worker.sockets = new Array();
   worker.machines = new Object();
-
-  worker.on('message', handleMessageFromWorker);
-  worker.on('error', function(err) {
-    log(err);
-  });
 }
 
 function handleWorkerDeath(worker) {
@@ -253,10 +242,20 @@ if (cluster.isMaster) { // The master keeps track of the files and the workers.
   cluster.earlyOuts = 0;
   cluster.dbHits = 0;
   cluster.openSockets = 0;
+
+  cluster.on('online', function workerOnline(worker) {
+    log("worker #"+worker.id+" is online.");
+    worker.send({cmd:"fairycode",code:hyrule.fairy.code});
+    worker.send({cmd:"fairymd5",md5:hyrule.fairy.md5});
+    worker.send({cmd:"moblinmd5",md5:hyrule.moblin.md5});
+    worker.send({cmd:"moblincode",code:hyrule.moblin.code});
+  });
   
   cluster.on('death', function workerDeath(worker) {
     handleWorkerDeath(worker)
   });
+
+  cluster.on('message', handleMessageFromWorker);
 
   hyrule.config.watcher = fs.watch(configFile, configWatchEvent);
   hyrule.moblin.watcher = fs.watch('./moblin.js', generateMoblinMD5);
@@ -318,7 +317,7 @@ function handleMessageFromMaster(msg) {
       process.exit();
       break;
     default:
-      log(msg);
+      log(msg + "\n\n message from master.");
   }
 }
 
